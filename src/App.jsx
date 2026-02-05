@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 
 // --- 配置區 ---
-const API_URL = "https://script.google.com/macros/s/AKfycbwDJJyErUOrlzErXIzQmT5Fehr79gBDrxd547ihP5OEqhyH9G0p2o8EsCOZi0QoF36_/exec"; 
+const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec; 
 const LIFF_ID = "2009058776-fDhQPTf4"; 
 
 const App = () => {

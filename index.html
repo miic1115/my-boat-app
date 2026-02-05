@@ -8,21 +8,11 @@
   <!-- 全域錯誤捕捉 (Red Screen of Death) -->
   <script>
     window.onerror = function(msg, url, line, col, error) {
-      // 忽略 ResizeObserver 錯誤 (這是瀏覽器的無害警告)
       if (msg.includes("ResizeObserver")) return;
-      
       document.getElementById('root').innerHTML = `
         <div style="padding: 24px; color: #ff6b6b; background: #1a0505; min-height: 100vh; font-family: sans-serif;">
           <h2 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 12px; border-bottom: 1px solid #ff6b6b; padding-bottom: 8px;">⛔ 系統發生錯誤</h2>
           <p style="font-family: monospace; background: #000; padding: 12px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px;">${msg}</p>
-          <div style="font-size: 0.85rem; color: #aaa;">
-            <p>可能原因：</p>
-            <ul style="margin-left: 20px; margin-top: 8px; list-style-type: disc;">
-              <li>Google Apps Script (GAS) 權限未設為「任何人 (Anyone)」。</li>
-              <li>試算表名稱與程式不符 (Member_Profile / Attendance_Main)。</li>
-              <li>瀏覽器版本過舊不支援模組。</li>
-            </ul>
-          </div>
           <button onclick="window.location.reload()" style="margin-top: 24px; padding: 12px 24px; background: #e11d48; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%;">重新整理頁面</button>
         </div>
       `;
@@ -35,7 +25,7 @@
   <!-- 2. LINE SDK -->
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
-  <!-- 3. React 引擎 (使用穩定版 ESM) -->
+  <!-- 3. React 引擎 -->
   <script type="importmap">
     {
       "imports": {
@@ -83,7 +73,6 @@
       useEffect(() => {
         const init = async () => {
           try {
-            // 初始化 LIFF
             if (LIFF_ID && window.liff) {
               try {
                 await window.liff.init({ liffId: LIFF_ID });
@@ -98,10 +87,8 @@
               ? (await window.liff.getProfile()).userId 
               : "MOCK_USER_ID";
             
-            // 讀取資料 (包含錯誤檢查)
             const res = await fetch(`${API_URL}?action=getInitialData`);
             
-            // 檢查回應類型，如果是 HTML 代表是 Google 登入頁面 (權限錯誤)
             const contentType = res.headers.get("content-type");
             if (contentType && contentType.includes("text/html")) {
               throw new Error("權限錯誤：GAS 回傳了網頁而非資料。請確認 GAS 部署權限已設為「任何人 (Anyone)」。");
@@ -120,7 +107,9 @@
             if (data.dates && data.dates.length > 0) {
                const today = new Date();
                today.setHours(0,0,0,0);
+               // 找到第一個大於等於今天的日期
                const firstFuture = data.dates.find(d => parseDate(d) >= today);
+               // 如果都過去了，就選最後一個，否則選第一個未來日期
                setSelectedDate(firstFuture || data.dates[data.dates.length - 1]);
             }
 
@@ -132,7 +121,6 @@
             setLoading(false);
           } catch (err) {
             console.error("Init Error:", err);
-            // 如果是 JSON 解析錯誤，通常也是權限問題
             if (err.message.includes("Unexpected token")) {
               setErrorMsg("資料格式錯誤：這通常是因為 GAS 權限未公開 (Anyone)，導致回傳了登入頁面。");
             } else {
@@ -144,26 +132,35 @@
         init();
       }, []);
 
-      // 📅 強化版日期解析器
+      // 📅 強化版日期解析器 V2 (解決折疊問題)
       const parseDate = (dateStr) => {
-        if (!dateStr) return new Date(0);
-        let date = new Date(dateStr);
-        if (!isNaN(date.getTime())) return date;
-
-        const currentYear = new Date().getFullYear();
-        let clean = dateStr.split(' ')[0].split('(')[0];
-        date = new Date(clean);
+        if (!dateStr) return new Date(0); // 1970
         
-        if (isNaN(date.getTime()) || date.getFullYear() < 2000) {
-          const parts = clean.match(/(\d+)[/-](\d+)/);
-          if (parts) {
-            date = new Date(currentYear, parseInt(parts[1]) - 1, parseInt(parts[2]));
-          }
+        // 1. 清理字串：移除括號、備註 (例如 "2/8 (日) 測試" -> "2/8")
+        // 把所有非數字、斜線、橫線的字元都切掉
+        let clean = dateStr.replace(/\s*\(.*/, "").trim(); 
+        
+        let date;
+        // 2. 判斷是否有年份 (4碼數字開頭)
+        const hasYear = clean.match(/^\d{4}[/-]/);
+        
+        if (hasYear) {
+           date = new Date(clean);
+        } else {
+           // 3. 沒有年份，補上今年 (例如 "2/8" -> "2026/2/8")
+           // 注意：這裡使用 new Date().getFullYear() 抓取當前年份
+           const currentYear = new Date().getFullYear();
+           date = new Date(`${currentYear}/${clean}`);
         }
+
+        // 4. 如果還是解析失敗，回傳一個超大未來時間，確保它不會被錯誤折疊
+        if (isNaN(date.getTime())) {
+           return new Date(8640000000000000); 
+        }
+        
         return date;
       };
 
-      // 直接認領
       const handleBindUser = async (name) => {
         if (!confirm(`確定要認領「${name}」作為您的身份嗎？`)) return;
 
@@ -212,22 +209,22 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // 日期分類 (修正 ReferenceError)
+      // 日期分類
       const { pastDates, futureDates } = useMemo(() => {
         const today = new Date();
-        today.setHours(0, 0, 0, 0);
+        today.setHours(0, 0, 0, 0); // 歸零時間，只比對日期
         const past = [];
         const future = [];
 
         practiceDates.forEach(dateStr => {
           const dateObj = parseDate(dateStr);
-          if (dateObj.getTime() > 0 && dateObj < today) {
+          // 只有當日期確實小於今天，才算過去
+          if (dateObj < today) {
              past.push(dateStr);
           } else {
              future.push(dateStr);
           }
         });
-        // 修正：回傳物件屬性對應正確的變數
         return { pastDates: past, futureDates: future };
       }, [practiceDates]);
 

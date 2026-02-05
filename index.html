@@ -5,15 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>龍舟管理系統</title>
   
-  <!-- 錯誤捕捉：如果畫面全白，會顯示錯誤原因 -->
+  <!-- 錯誤捕捉 -->
   <script>
     window.onerror = function(msg, url, line, col, error) {
       document.getElementById('root').innerHTML = `
         <div style="padding: 20px; color: #ff6b6b; background: #2d0a0a; min-height: 100vh;">
-          <h2 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 10px;">程式發生錯誤 (Error)</h2>
-          <p style="font-family: monospace;">${msg}</p>
-          <p style="font-size: 0.8rem; opacity: 0.8; margin-top: 10px;">位置: Line ${line}</p>
-          <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #ff6b6b; color: white; border: none; border-radius: 8px;">重新整理</button>
+          <h2 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 10px;">程式發生錯誤</h2>
+          <p>${msg}</p>
+          <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px;">重新整理</button>
         </div>
       `;
     };
@@ -25,7 +24,7 @@
   <!-- 2. LINE SDK -->
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
-  <!-- 3. React 引擎 (Import Map) -->
+  <!-- 3. React 引擎 -->
   <script type="importmap">
     {
       "imports": {
@@ -35,7 +34,6 @@
       }
     }
   </script>
-  <!-- Babel 編譯器 -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-[#0a1a12] text-white font-sans antialiased selection:bg-emerald-500/30">
@@ -47,7 +45,7 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Calendar, Ship, ChevronRight, Save, ChevronDown, ChevronUp,
-      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, History
+      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, History, Lock, X
     } from 'lucide-react';
 
     // ==========================================
@@ -55,7 +53,7 @@
     // ==========================================
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
     const LIFF_ID = "2009058776-fDhQPTf4";
-    const TEAM_PASSCODE = "8888"; // 通行碼
+    const TEAM_PASSCODE = "8888"; // 🔒 通行碼
     // ==========================================
 
     const App = () => {
@@ -71,11 +69,15 @@
       const [isSaving, setIsSaving] = useState(false);
       const [toast, setToast] = useState(null);
       const [showHistory, setShowHistory] = useState(false);
+      
+      // 🔒 密碼視窗控制
+      const [showPasscodeModal, setShowPasscodeModal] = useState(false);
+      const [passcodeInput, setPasscodeInput] = useState('');
+      const [pendingClaimName, setPendingClaimName] = useState(null);
 
       useEffect(() => {
         const init = async () => {
           try {
-            // 初始化 LIFF
             if (LIFF_ID && window.liff) {
               try {
                 await window.liff.init({ liffId: LIFF_ID });
@@ -83,20 +85,16 @@
                   window.liff.login();
                   return;
                 }
-              } catch (e) {
-                console.warn("LIFF init failed (local testing?):", e);
-              }
+              } catch (e) { console.warn("LIFF init failed:", e); }
             }
             
             const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
               ? (await window.liff.getProfile()).userId 
               : "MOCK_USER_ID";
             
-            // 讀取資料
             const res = await fetch(`${API_URL}?action=getInitialData`);
             if (!res.ok) throw new Error("網路連線錯誤");
             const data = await res.json();
-            
             if (data.error) throw new Error(data.error);
 
             setProfiles(data.profiles || []);
@@ -105,8 +103,11 @@
             
             // 預設選取最新的日期
             if (data.dates && data.dates.length > 0) {
-               // 簡單邏輯：選取列表中的第一個（假設後端已排序）
-               setSelectedDate(data.dates[0]);
+               // 找第一個未來日期，如果沒有則選最後一個
+               const today = new Date();
+               today.setHours(0,0,0,0);
+               const firstFuture = data.dates.find(d => parseDate(d) >= today);
+               setSelectedDate(firstFuture || data.dates[data.dates.length - 1]);
             }
 
             const boundUser = (data.profiles || []).find(p => p.lineId === userId);
@@ -117,21 +118,48 @@
             setLoading(false);
           } catch (err) {
             console.error(err);
-            setErrorMsg(err.message || "連線失敗，請檢查 GAS 權限。");
+            setErrorMsg(err.message || "連線失敗。");
             setLoading(false);
           }
         };
         init();
       }, []);
 
-      const handleBindUser = async (name) => {
-        // 安全鎖檢查
-        const code = prompt(`請輸入通行碼以認領「${name}」：`);
-        if (code !== TEAM_PASSCODE) {
-          alert("❌ 通行碼錯誤！");
+      // 📅 強化版日期解析器
+      const parseDate = (dateStr) => {
+        if (!dateStr) return new Date(0);
+        const currentYear = new Date().getFullYear();
+        // 移除括號和空格，例如 "2/8 (日)" -> "2/8"
+        let clean = dateStr.split(' ')[0].split('(')[0];
+        
+        // 嘗試解析
+        let date = new Date(clean);
+        
+        // 如果解析失敗或是年份不對（有些瀏覽器會預設 2001），手動組裝
+        if (isNaN(date.getTime()) || date.getFullYear() < 2020) {
+          const parts = clean.match(/(\d+)[/-](\d+)/);
+          if (parts) {
+            // 格式: MM/DD
+            date = new Date(currentYear, parseInt(parts[1]) - 1, parseInt(parts[2]));
+          }
+        }
+        return date;
+      };
+
+      // 觸發認領流程 (打開密碼視窗)
+      const initiateClaim = (name) => {
+        setPendingClaimName(name);
+        setPasscodeInput('');
+        setShowPasscodeModal(true);
+      };
+
+      // 執行綁定 (驗證密碼後)
+      const confirmClaim = async () => {
+        if (passcodeInput !== TEAM_PASSCODE) {
+          alert("❌ 通行碼錯誤！請詢問管理員。");
           return;
         }
-
+        setShowPasscodeModal(false);
         setIsSaving(true);
         try {
           const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
@@ -140,12 +168,12 @@
             
           await fetch(API_URL, {
             method: 'POST',
-            body: JSON.stringify({ action: 'bindLineId', name, lineId: userId })
+            body: JSON.stringify({ action: 'bindLineId', name: pendingClaimName, lineId: userId })
           });
-          const user = profiles.find(p => p.name === name);
+          const user = profiles.find(p => p.name === pendingClaimName);
           setCurrentUser(user);
           setProxyUser(user);
-          showToast(`歡迎，${name}！`);
+          showToast(`歡迎，${pendingClaimName}！`);
         } catch (err) { alert("綁定失敗"); } 
         finally { setIsSaving(false); }
       };
@@ -177,7 +205,7 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // 📅 日期分類邏輯
+      // 日期分類
       const { pastDates, futureDates } = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -186,26 +214,15 @@
         const future = [];
 
         practiceDates.forEach(dateStr => {
-          // 簡單日期解析，處理中文日期格式
-          let dateObj = new Date(dateStr);
-          if (isNaN(dateObj.getTime())) {
-             // 嘗試處理 "2/1 (日)" 這種格式 -> 取 "2/1"
-             const cleanDate = dateStr.split(' ')[0]; 
-             dateObj = new Date(cleanDate);
-             if (isNaN(dateObj.getTime())) {
-               // 如果還是失敗，就當作未來日期
-               const currentYear = new Date().getFullYear();
-               dateObj = new Date(`${currentYear}/${cleanDate}`);
-             }
-          }
-          
-          if (!isNaN(dateObj.getTime()) && dateObj < today) {
+          const dateObj = parseDate(dateStr);
+          // 只有當能解析出日期，且日期小於今天，才算過去
+          if (dateObj.getTime() > 0 && dateObj < today) {
              past.push(dateStr);
           } else {
-             future.push(dateStr);
+             future.push(dateStr); // 其他都當作未來，避免漏掉
           }
         });
-        return { pastDates: past, futureDates: future };
+        return { pastDates, futureDates };
       }, [practiceDates]);
 
       const dashboardStats = useMemo(() => {
@@ -230,20 +247,52 @@
         </div>
       );
 
+      // 身分認領畫面
       if (!currentUser) return (
-        <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="min-h-screen flex items-center justify-center p-6 relative">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
-            <h1 className="text-2xl font-bold text-center mb-2">身分認領</h1>
-            <p className="text-gray-400 text-center mb-6 text-xs">首次使用請認領您的名字 (需輸入通行碼)</p>
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="flex flex-col items-center mb-6">
+              <div className="w-16 h-16 bg-emerald-900/30 rounded-full flex items-center justify-center mb-4">
+                <Lock className="w-8 h-8 text-emerald-500" />
+              </div>
+              <h1 className="text-2xl font-bold text-center">身分認領</h1>
+              <p className="text-gray-400 text-center text-xs mt-2">為確保安全，請輸入通行碼以啟用系統</p>
+            </div>
+            
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
               {profiles.map(p => (
-                <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group active:scale-[0.98] transition-all">
+                <button key={p.name} onClick={() => initiateClaim(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group active:scale-[0.98] transition-all hover:border-emerald-500/50">
                   <span className="font-bold">{p.name}</span>
                   <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-emerald-500" />
                 </button>
               ))}
             </div>
           </div>
+
+          {/* 密碼輸入彈窗 (Modal) */}
+          {showPasscodeModal && (
+            <div className="absolute inset-0 bg-black/80 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+              <div className="bg-[#1a332a] w-full max-w-xs rounded-2xl p-6 shadow-2xl border border-emerald-500/30 animate-in zoom-in-95 duration-200">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-lg text-emerald-400">輸入通行碼</h3>
+                  <button onClick={() => setShowPasscodeModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+                </div>
+                <p className="text-sm text-gray-300 mb-4">要認領「{pendingClaimName}」嗎？<br/>請輸入團隊密碼：</p>
+                <input 
+                  type="password" 
+                  pattern="[0-9]*" 
+                  inputMode="numeric"
+                  value={passcodeInput}
+                  onChange={(e) => setPasscodeInput(e.target.value)}
+                  className="w-full bg-[#0d1f18] border border-emerald-700 rounded-xl px-4 py-3 text-center text-2xl tracking-widest font-bold focus:outline-none focus:border-emerald-400 mb-6"
+                  autoFocus
+                />
+                <button onClick={confirmClaim} className="w-full py-3 bg-emerald-500 text-[#0a1a12] font-bold rounded-xl active:scale-95 transition-transform">
+                  確認
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
 
@@ -278,7 +327,7 @@
                   <div className="mb-6">
                     <button 
                       onClick={() => setShowHistory(!showHistory)} 
-                      className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-gray-700 rounded-xl text-gray-500 text-xs hover:bg-gray-800/30 transition-colors"
+                      className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-emerald-900/50 bg-[#0d1f18]/50 rounded-xl text-gray-500 text-xs hover:bg-gray-800/30 transition-colors"
                     >
                       <History className="w-4 h-4" />
                       {showHistory ? "隱藏歷史行程" : `顯示 ${pastDates.length} 個已結束的行程`}
@@ -286,16 +335,16 @@
                     </button>
                     
                     {showHistory && (
-                      <div className="space-y-3 mt-4 animate-in slide-in-from-top-2 opacity-70">
+                      <div className="space-y-3 mt-4 animate-in slide-in-from-top-2">
                         {pastDates.map(date => {
                           const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
                           return (
-                            <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-gray-800 rounded-2xl p-4 flex items-center justify-between cursor-pointer grayscale opacity-80">
+                            <div key={date} className="bg-[#142820] border border-gray-800 rounded-2xl p-4 flex items-center justify-between grayscale opacity-60">
                               <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-xl flex items-center justify-center border border-gray-700 bg-gray-800/30 text-gray-500"><Calendar className="w-5 h-5" /></div>
-                                <div className="text-gray-500 font-bold">{date}</div>
+                                <div className="text-gray-500 font-bold">{date} <span className="text-xs font-normal">(已結束)</span></div>
                               </div>
-                              <div className={`relative w-14 h-8 rounded-full transition-colors ${isAttending ? 'bg-emerald-800' : 'bg-gray-800'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white/50 rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} /></div>
+                              <div className={`relative w-14 h-8 rounded-full ${isAttending ? 'bg-emerald-800' : 'bg-gray-800'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white/50 rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} /></div>
                             </div>
                           );
                         })}
@@ -318,7 +367,7 @@
                       </div>
                     );
                   }) : (
-                    <div className="text-center py-10 text-gray-500">沒有即將到來的練習</div>
+                    <div className="text-center py-10 text-gray-500 border border-dashed border-gray-800 rounded-2xl">沒有即將到來的練習</div>
                   )}
                 </div>
               </div>

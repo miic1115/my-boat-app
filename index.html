@@ -5,14 +5,25 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>龍舟管理系統</title>
   
-  <!-- 錯誤捕捉 -->
+  <!-- 全域錯誤捕捉 (Red Screen of Death) -->
   <script>
     window.onerror = function(msg, url, line, col, error) {
+      // 忽略 ResizeObserver 錯誤 (這是瀏覽器的無害警告)
+      if (msg.includes("ResizeObserver")) return;
+      
       document.getElementById('root').innerHTML = `
-        <div style="padding: 20px; color: #ff6b6b; background: #2d0a0a; min-height: 100vh;">
-          <h2 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 10px;">程式發生錯誤</h2>
-          <p>${msg}</p>
-          <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px;">重新整理</button>
+        <div style="padding: 24px; color: #ff6b6b; background: #1a0505; min-height: 100vh; font-family: sans-serif;">
+          <h2 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 12px; border-bottom: 1px solid #ff6b6b; padding-bottom: 8px;">⛔ 系統發生錯誤</h2>
+          <p style="font-family: monospace; background: #000; padding: 12px; border-radius: 8px; font-size: 0.9rem; margin-bottom: 16px;">${msg}</p>
+          <div style="font-size: 0.85rem; color: #aaa;">
+            <p>可能原因：</p>
+            <ul style="margin-left: 20px; margin-top: 8px; list-style-type: disc;">
+              <li>Google Apps Script (GAS) 權限未設為「任何人 (Anyone)」。</li>
+              <li>試算表名稱與程式不符 (Member_Profile / Attendance_Main)。</li>
+              <li>瀏覽器版本過舊不支援模組。</li>
+            </ul>
+          </div>
+          <button onclick="window.location.reload()" style="margin-top: 24px; padding: 12px 24px; background: #e11d48; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; width: 100%;">重新整理頁面</button>
         </div>
       `;
     };
@@ -24,13 +35,13 @@
   <!-- 2. LINE SDK -->
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
-  <!-- 3. React 引擎 -->
+  <!-- 3. React 引擎 (使用穩定版 ESM) -->
   <script type="importmap">
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.300.0?bundle"
+        "lucide-react": "https://esm.sh/lucide-react@0.294.0"
       }
     }
   </script>
@@ -72,6 +83,7 @@
       useEffect(() => {
         const init = async () => {
           try {
+            // 初始化 LIFF
             if (LIFF_ID && window.liff) {
               try {
                 await window.liff.init({ liffId: LIFF_ID });
@@ -79,15 +91,24 @@
                   window.liff.login();
                   return;
                 }
-              } catch (e) { console.warn("LIFF init failed:", e); }
+              } catch (e) { console.warn("LIFF init warning:", e); }
             }
             
             const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
               ? (await window.liff.getProfile()).userId 
               : "MOCK_USER_ID";
             
+            // 讀取資料 (包含錯誤檢查)
             const res = await fetch(`${API_URL}?action=getInitialData`);
-            if (!res.ok) throw new Error("網路連線錯誤");
+            
+            // 檢查回應類型，如果是 HTML 代表是 Google 登入頁面 (權限錯誤)
+            const contentType = res.headers.get("content-type");
+            if (contentType && contentType.includes("text/html")) {
+              throw new Error("權限錯誤：GAS 回傳了網頁而非資料。請確認 GAS 部署權限已設為「任何人 (Anyone)」。");
+            }
+
+            if (!res.ok) throw new Error(`網路錯誤: ${res.status}`);
+            
             const data = await res.json();
             if (data.error) throw new Error(data.error);
 
@@ -110,32 +131,32 @@
             }
             setLoading(false);
           } catch (err) {
-            console.error(err);
-            setErrorMsg(err.message || "連線失敗。");
+            console.error("Init Error:", err);
+            // 如果是 JSON 解析錯誤，通常也是權限問題
+            if (err.message.includes("Unexpected token")) {
+              setErrorMsg("資料格式錯誤：這通常是因為 GAS 權限未公開 (Anyone)，導致回傳了登入頁面。");
+            } else {
+              setErrorMsg(err.message || "連線失敗，請檢查網路。");
+            }
             setLoading(false);
           }
         };
         init();
       }, []);
 
-      // 📅 強化版日期解析器 (修復折疊問題)
+      // 📅 強化版日期解析器
       const parseDate = (dateStr) => {
         if (!dateStr) return new Date(0);
-        
-        // 1. 先嘗試直接解析 (處理標準格式)
         let date = new Date(dateStr);
         if (!isNaN(date.getTime())) return date;
 
-        // 2. 處理手動格式 "2/8 (日)"
         const currentYear = new Date().getFullYear();
-        let clean = dateStr.split(' ')[0].split('(')[0]; // 取出 "2/8"
-        
+        let clean = dateStr.split(' ')[0].split('(')[0];
         date = new Date(clean);
-        // 如果瀏覽器解析 "2/8" 失敗，或年份不對，手動處理
+        
         if (isNaN(date.getTime()) || date.getFullYear() < 2000) {
           const parts = clean.match(/(\d+)[/-](\d+)/);
           if (parts) {
-            // (年, 月-1, 日)
             date = new Date(currentYear, parseInt(parts[1]) - 1, parseInt(parts[2]));
           }
         }
@@ -160,7 +181,7 @@
           setCurrentUser(user);
           setProxyUser(user);
           showToast(`歡迎，${name}！`);
-        } catch (err) { alert("綁定失敗"); } 
+        } catch (err) { alert("綁定失敗，請重試"); } 
         finally { setIsSaving(false); }
       };
 
@@ -175,8 +196,8 @@
             method: 'POST',
             body: JSON.stringify({ action: 'updateAttendance', name: proxyUser.name, updates })
           });
-          showToast('已儲存！');
-        } catch (err) { alert("儲存失敗"); } 
+          showToast('已儲存變更！');
+        } catch (err) { alert("儲存失敗，請檢查網路"); } 
         finally { setIsSaving(false); }
       };
 
@@ -195,17 +216,15 @@
       const { pastDates, futureDates } = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-
         const past = [];
         const future = [];
 
         practiceDates.forEach(dateStr => {
           const dateObj = parseDate(dateStr);
-          // 只有當日期有效且小於今天，才算過去
-          if (!isNaN(dateObj.getTime()) && dateObj < today) {
+          if (dateObj.getTime() > 0 && dateObj < today) {
              past.push(dateStr);
           } else {
-             future.push(dateStr); // 其他都當作未來，避免顯示遺漏
+             future.push(dateStr);
           }
         });
         return { pastDates, futureDates };
@@ -223,18 +242,24 @@
         return { total: attendees.length, male, female, manifest };
       }, [selectedDate, attendance, profiles]);
 
-      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold">載入中...</div>;
+      if (loading) return (
+        <div className="min-h-screen flex flex-col items-center justify-center text-emerald-500 font-bold bg-[#0a1a12]">
+          <div className="w-12 h-12 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin mb-4"></div>
+          載入中...
+        </div>
+      );
       
       if (errorMsg) return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-[#0a1a12]">
           <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
-          <p className="text-gray-400">{errorMsg}</p>
-          <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-emerald-500 text-black rounded-lg font-bold">重新載入</button>
+          <h3 className="text-xl font-bold text-white mb-2">無法載入資料</h3>
+          <p className="text-gray-400 text-sm max-w-xs">{errorMsg}</p>
+          <button onClick={() => window.location.reload()} className="mt-8 px-6 py-3 bg-emerald-600 text-white rounded-xl font-bold shadow-lg active:scale-95 transition-transform">重新嘗試連線</button>
         </div>
       );
 
       if (!currentUser) return (
-        <div className="min-h-screen flex items-center justify-center p-6 relative">
+        <div className="min-h-screen flex items-center justify-center p-6 bg-[#0a1a12] relative">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
             <div className="flex flex-col items-center mb-6">
               <div className="w-16 h-16 bg-emerald-900/30 rounded-full flex items-center justify-center mb-4">
@@ -244,7 +269,7 @@
               <p className="text-gray-400 text-center text-xs mt-2">請點擊您的名字以完成綁定</p>
             </div>
             
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-2 custom-scrollbar">
               {profiles.map(p => (
                 <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group active:scale-[0.98] transition-all hover:border-emerald-500/50">
                   <span className="font-bold">{p.name}</span>
@@ -257,11 +282,11 @@
       );
 
       return (
-        <div className="min-h-screen font-sans pb-32">
+        <div className="min-h-screen font-sans pb-32 bg-[#0a1a12]">
           <nav className="sticky top-0 z-40 bg-[#0a1a12]/95 backdrop-blur-md border-b border-emerald-900/30 h-16 flex items-center justify-between px-4">
             <div className="flex bg-[#0d1f18] p-1 rounded-xl">
-              <button onClick={() => setActiveTab('signup')} className={`px-4 py-2 rounded-lg font-bold text-xs ${activeTab === 'signup' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>我要報名</button>
-              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold text-xs ${activeTab === 'dashboard' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>出席看板</button>
+              <button onClick={() => setActiveTab('signup')} className={`px-4 py-2 rounded-lg font-bold text-xs transition-colors ${activeTab === 'signup' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>我要報名</button>
+              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold text-xs transition-colors ${activeTab === 'dashboard' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>出席看板</button>
             </div>
             <div className="text-right">
               <div className="text-[10px] text-emerald-500 font-bold uppercase">User</div>
@@ -272,10 +297,10 @@
           <main className="max-w-4xl mx-auto px-4 py-6">
             {activeTab === 'signup' ? (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/30 mb-8">
-                  <label className="text-[10px] font-bold text-emerald-500 uppercase block mb-2">代理人模式 (切換身份)</label>
+                <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/30 mb-8 shadow-lg">
+                  <label className="text-[10px] font-bold text-emerald-500 uppercase block mb-2 tracking-widest">代理人模式 (切換身份)</label>
                   <div className="relative">
-                    <select value={proxyUser.name} onChange={(e) => setProxyUser(profiles.find(p => p.name === e.target.value))} className="w-full bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none appearance-none">
+                    <select value={proxyUser.name} onChange={(e) => setProxyUser(profiles.find(p => p.name === e.target.value))} className="w-full bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none appearance-none text-white">
                       {profiles.map(p => <option key={p.name} value={p.name}>{p.name}{p.name === currentUser.name ? ' (本人)' : ''}</option>)}
                     </select>
                     <ArrowRightLeft className="absolute right-4 top-3.5 w-4 h-4 text-emerald-500/50 pointer-events-none" />
@@ -287,7 +312,7 @@
                   <div className="mb-6">
                     <button 
                       onClick={() => setShowHistory(!showHistory)} 
-                      className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-emerald-900/50 bg-[#0d1f18]/50 rounded-xl text-gray-500 text-xs hover:bg-gray-800/30 transition-colors"
+                      className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-emerald-900/30 bg-[#0d1f18]/50 rounded-xl text-gray-500 text-xs hover:bg-gray-800/30 transition-colors"
                     >
                       <History className="w-4 h-4" />
                       {showHistory ? "隱藏歷史行程" : `顯示 ${pastDates.length} 個已結束的行程`}
@@ -318,7 +343,7 @@
                   {futureDates.length > 0 ? futureDates.map(date => {
                     const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
                     return (
-                      <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98]">
+                      <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-all hover:border-emerald-700/50 shadow-sm">
                         <div className="flex items-center gap-4">
                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}><Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} /></div>
                           <div className="font-bold">{date}</div>
@@ -327,33 +352,33 @@
                       </div>
                     );
                   }) : (
-                    <div className="text-center py-10 text-gray-500 border border-dashed border-gray-800 rounded-2xl">沒有即將到來的練習</div>
+                    <div className="text-center py-10 text-gray-500 border border-dashed border-gray-800 rounded-2xl bg-black/20">沒有即將到來的練習</div>
                   )}
                 </div>
               </div>
             ) : (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className="flex items-center justify-between mb-8 bg-[#142820] p-4 rounded-2xl border border-emerald-900/30">
+                <div className="flex items-center justify-between mb-8 bg-[#142820] p-4 rounded-2xl border border-emerald-900/30 shadow-lg">
                   <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
                   <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm">
                     {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
                 <div className="grid grid-cols-3 gap-3 mb-8 text-center">
-                  <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.total}</div></div>
-                  <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-2xl font-black text-blue-400">{dashboardStats.male}</div></div>
-                  <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">女生</div><div className="text-2xl font-black text-pink-400">{dashboardStats.female}</div></div>
+                  <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/20 shadow-lg"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.total}</div></div>
+                  <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/20 shadow-lg"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-2xl font-black text-blue-400">{dashboardStats.male}</div></div>
+                  <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/20 shadow-lg"><div className="text-[10px] text-gray-500 font-bold mb-1">女生</div><div className="text-2xl font-black text-pink-400">{dashboardStats.female}</div></div>
                 </div>
                 <div className="space-y-6">
                   {dashboardStats.manifest.Staff.length > 0 && (
-                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5"><div className="flex items-center gap-2 mb-2 text-emerald-400 text-[10px] font-bold uppercase"><Ship className="w-4 h-4" /> 舵手與鼓手</div><div className="flex flex-wrap gap-2">{dashboardStats.manifest.Staff.map(p => <span key={p.name} className="px-3 py-1 bg-[#0d1f18] border border-emerald-500/30 rounded-lg text-sm font-bold">{p.name} <span className="text-[10px] opacity-50">{p.position}</span></span>)}</div></div>
+                    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 shadow-inner"><div className="flex items-center gap-2 mb-2 text-emerald-400 text-[10px] font-bold uppercase"><Ship className="w-4 h-4" /> 舵手與鼓手</div><div className="flex flex-wrap gap-2">{dashboardStats.manifest.Staff.map(p => <span key={p.name} className="px-3 py-1 bg-[#0d1f18] border border-emerald-500/30 rounded-lg text-sm font-bold">{p.name} <span className="text-[10px] opacity-50">{p.position}</span></span>)}</div></div>
                   )}
                   <div className="grid grid-cols-2 gap-4">
                     {['Left', 'Right'].map(side => (
                       <div key={side} className="space-y-3">
                         <div className="text-[10px] font-bold text-gray-500 uppercase">{side === 'Left' ? '左槳' : '右槳'}</div>
                         {dashboardStats.manifest[side].map(p => (
-                          <div key={p.name} className={`p-3 bg-[#142820] border-${side === 'Left' ? 'l' : 'r'}-4 border-emerald-500 rounded-xl flex justify-between items-center text-sm font-bold shadow-sm`}>
+                          <div key={p.name} className={`p-4 bg-[#142820] border-${side === 'Left' ? 'l' : 'r'}-4 border-emerald-500 border-emerald-900/20 rounded-xl flex justify-between items-center text-sm font-bold shadow-md`}>
                             <span>{p.name}</span><span className="text-[10px] opacity-50">{p.gender}</span>
                           </div>
                         ))}

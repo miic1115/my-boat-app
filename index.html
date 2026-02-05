@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>龍舟管理系統 v2.2 (測試版)</title>
+  <title>龍舟管理系統 (月份篩選版)</title>
   
   <!-- 1. 樣式與圖標 -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -32,12 +32,12 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Calendar, Ship, ChevronRight, Save, 
-      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, Users, Filter, LogIn, ShieldOff
+      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, Users, Filter
     } from 'lucide-react';
 
     // --- 設定區 ---
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
-    const LIFF_ID = "2009058776-inSwxkl9";
+    const LIFF_ID = "2009058776-fDhQPTf4";
 
     const App = () => {
       const [activeTab, setActiveTab] = useState('signup');
@@ -48,43 +48,13 @@
       const [proxyUser, setProxyUser] = useState(null);
       const [selectedDate, setSelectedDate] = useState('');
       
-      // 新增：月份篩選狀態，預設為當前月份 (1-12)
+      // [新增] 月份狀態：預設為當前月份
       const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1));
-      
+
       const [loading, setLoading] = useState(true);
-      const [needsLogin, setNeedsLogin] = useState(false); // 控制是否顯示登入選單
       const [errorMsg, setErrorMsg] = useState(null);
       const [isSaving, setIsSaving] = useState(false);
       const [toast, setToast] = useState(null);
-
-      // 共用的資料讀取函式
-      const loadSystemData = async (currentLineId) => {
-        try {
-            setLoading(true);
-            const res = await fetch(`${API_URL}?action=getInitialData`);
-            const data = await res.json();
-            
-            if (data.error) throw new Error(data.error);
-
-            setProfiles(data.profiles);
-            setPracticeDates(data.dates);
-            setAttendance(data.attendanceMap || {});
-            
-            if (data.dates.length > 0) setSelectedDate(data.dates[0]);
-
-            // 自動登入綁定邏輯
-            const boundUser = data.profiles.find(p => p.lineId === currentLineId);
-            if (boundUser) {
-              setCurrentUser(boundUser);
-              setProxyUser(boundUser);
-            }
-            setLoading(false);
-        } catch (err) {
-            console.error(err);
-            setErrorMsg("連線失敗，請確認 GAS 權限設為「任何人」且網址正確。");
-            setLoading(false);
-        }
-      };
 
       // 初始化
       useEffect(() => {
@@ -93,52 +63,48 @@
             // 初始化 LIFF
             if (LIFF_ID && window.liff) {
               await window.liff.init({ liffId: LIFF_ID });
-              if (window.liff.isLoggedIn()) {
-                 // 已登入：直接讀取資料
-                 const profile = await window.liff.getProfile();
-                 await loadSystemData(profile.userId);
-              } else {
-                 // 未登入：顯示登入選單，不自動跳轉
-                 setNeedsLogin(true);
-                 setLoading(false);
+              if (!window.liff.isLoggedIn()) {
+                window.liff.login();
+                return;
               }
-            } else {
-              // 沒有 LIFF 環境：直接進入測試模式
-              await loadSystemData("MOCK_USER_ID");
             }
+            
+            const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
+              ? (await window.liff.getProfile()).userId 
+              : "MOCK_USER_ID";
+            
+            // 抓取資料
+            const res = await fetch(`${API_URL}?action=getInitialData`);
+            const data = await res.json();
+            
+            if (data.error) throw new Error(data.error);
+
+            setProfiles(data.profiles);
+            setPracticeDates(data.dates);
+            setAttendance(data.attendanceMap || {});
+            if (data.dates.length > 0) setSelectedDate(data.dates[0]);
+
+            // 自動登入
+            const boundUser = data.profiles.find(p => p.lineId === userId);
+            if (boundUser) {
+              setCurrentUser(boundUser);
+              setProxyUser(boundUser);
+            }
+            setLoading(false);
           } catch (err) {
-            console.error('LIFF Init Failed', err);
-            // 初始化失敗也允許進入測試模式
-            setNeedsLogin(true);
+            console.error(err);
+            setErrorMsg("連線失敗，請確認 GAS 權限設為「任何人」且網址正確。");
             setLoading(false);
           }
         };
         init();
       }, []);
 
-      // 處理訪客/測試登入
-      const handleGuestLogin = () => {
-        setNeedsLogin(false);
-        loadSystemData("MOCK_USER_ID");
-      };
-
-      // 處理正式 LINE 登入
-      const handleLineLogin = () => {
-        if (window.liff) {
-            window.liff.login();
-        } else {
-            alert("無法偵測到 LINE 環境");
-        }
-      };
-
       // 綁定
       const handleBindUser = async (name) => {
         setIsSaving(true);
         try {
-          const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
-            ? (await window.liff.getProfile()).userId 
-            : "MOCK_USER_ID";
-            
+          const userId = (LIFF_ID && window.liff) ? (await window.liff.getProfile()).userId : "MOCK_USER_ID";
           await fetch(API_URL, {
             method: 'POST',
             body: JSON.stringify({ action: 'bindLineId', name, lineId: userId })
@@ -179,18 +145,24 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // --- 邏輯處理：解析月份 ---
+      // --- [新增] 月份處理邏輯 ---
+
+      // 1. 強大的月份解析器
       const getMonthFromDate = (dateStr) => {
         if (!dateStr) return '';
         const s = String(dateStr);
+        // 抓取 "數字/數字" 中的第一個數字
         const slashMatch = s.match(/(\d+)\s*\/\s*\d+/);
         if (slashMatch) return String(parseInt(slashMatch[1], 10));
+        // 抓取 "X月"
         const chineseMatch = s.match(/(\d+)\s*月/);
         if (chineseMatch) return String(parseInt(chineseMatch[1], 10));
+        // 最後手段：抓開頭數字
         const firstNum = parseInt(s, 10);
         return !isNaN(firstNum) ? String(firstNum) : '';
       };
 
+      // 2. 計算所有可用的月份 (去重複並排序)
       const availableMonths = useMemo(() => {
         const months = new Set();
         practiceDates.forEach(d => {
@@ -200,6 +172,7 @@
         return Array.from(months).sort((a, b) => parseInt(a) - parseInt(b));
       }, [practiceDates]);
 
+      // 3. 自動跳轉邏輯：如果當前月份沒資料，自動跳到有資料的最近月份
       useEffect(() => {
         if (availableMonths.length > 0 && !availableMonths.includes(selectedMonth)) {
             const currentM = parseInt(selectedMonth);
@@ -208,10 +181,13 @@
         }
       }, [availableMonths, selectedMonth]);
 
+      // 4. 根據月份過濾日期
       const filteredDates = useMemo(() => {
         return practiceDates.filter(d => getMonthFromDate(d) === selectedMonth);
       }, [practiceDates, selectedMonth]);
 
+
+      // Dashboard 統計
       const dashboardStats = useMemo(() => {
         const attendees = profiles.filter(p => attendance[`${p.name}_${selectedDate}`] === '參加');
         const male = attendees.filter(p => p.gender === '男').length;
@@ -225,33 +201,8 @@
       }, [selectedDate, attendance, profiles]);
 
       // --- 渲染畫面 ---
+      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold">資料載入中...</div>;
       
-      // 1. 登入選單畫面 (新增)
-      if (needsLogin) return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-6 bg-[#0a1a12]">
-          <div className="w-full max-w-sm bg-[#142820] border border-emerald-900/50 rounded-3xl p-8 shadow-2xl text-center">
-            <div className="w-16 h-16 bg-emerald-500/20 rounded-2xl flex items-center justify-center mx-auto mb-6">
-               <Ship className="w-8 h-8 text-emerald-500" />
-            </div>
-            <h1 className="text-2xl font-black mb-2">歡迎使用</h1>
-            <p className="text-gray-400 mb-8 text-sm">請選擇進入方式</p>
-            
-            <button onClick={handleLineLogin} className="w-full py-3 bg-[#00B900] hover:bg-[#009900] text-white rounded-xl font-bold flex items-center justify-center gap-2 mb-4 transition-all active:scale-95">
-               <LogIn className="w-5 h-5" /> LINE 帳號登入
-            </button>
-            
-            <button onClick={handleGuestLogin} className="w-full py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95">
-               <ShieldOff className="w-5 h-5 text-gray-400" /> 訪客 / 測試入口
-            </button>
-            <div className="mt-4 text-[10px] text-gray-500">免驗證模式將使用模擬 ID</div>
-          </div>
-        </div>
-      );
-
-      // 2. 載入中
-      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold animate-pulse">資料載入中...</div>;
-      
-      // 3. 錯誤畫面
       if (errorMsg) return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
           <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
@@ -260,11 +211,10 @@
         </div>
       );
 
-      // 4. 身份綁定 (如果沒綁定)
       if (!currentUser) return (
         <div className="min-h-screen flex items-center justify-center p-6">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
-            <h1 className="text-2xl font-bold text-center mb-6">身分認領 v2.2</h1>
+            <h1 className="text-2xl font-bold text-center mb-6">身分認領</h1>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {profiles.map(p => (
                 <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group">
@@ -273,21 +223,16 @@
                 </button>
               ))}
             </div>
-            <div className="mt-6 text-center">
-              <button onClick={() => window.location.reload()} className="text-xs text-gray-500 underline">返回登入畫面</button>
-            </div>
           </div>
         </div>
       );
 
-      // 5. 主程式
       return (
         <div className="min-h-screen font-sans pb-32">
-          {/* 導航列 */}
           <nav className="sticky top-0 z-40 bg-[#0a1a12]/95 backdrop-blur-md border-b border-emerald-900/30 h-16 flex items-center justify-between px-4">
             <div className="flex bg-[#0d1f18] p-1 rounded-xl">
-              <button onClick={() => setActiveTab('signup')} className={`px-4 py-2 rounded-lg font-bold text-xs transition-all ${activeTab === 'signup' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500 hover:text-gray-300'}`}>我要報名</button>
-              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold text-xs transition-all ${activeTab === 'dashboard' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500 hover:text-gray-300'}`}>出席看板</button>
+              <button onClick={() => setActiveTab('signup')} className={`px-4 py-2 rounded-lg font-bold text-xs ${activeTab === 'signup' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>我要報名</button>
+              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold text-xs ${activeTab === 'dashboard' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>出席看板</button>
             </div>
             <div className="text-right">
               <div className="text-[10px] text-emerald-500 font-bold uppercase">User</div>
@@ -298,9 +243,6 @@
           <main className="max-w-4xl mx-auto px-4 py-6">
             {activeTab === 'signup' ? (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <h1 className="text-[10px] font-bold text-gray-600 text-center mb-2">版本 v2.2 - 測試入口</h1>
-                
-                {/* 代理人切換區 */}
                 <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/30 mb-6">
                   <label className="text-[10px] font-bold text-emerald-500 uppercase block mb-2">代理人模式 (切換身份)</label>
                   <div className="relative">
@@ -311,7 +253,7 @@
                   </div>
                 </div>
 
-                {/* 月份切換器 */}
+                {/* [新增] 月份切換器 UI */}
                 <div className="mb-4">
                   <div className="flex items-center gap-2 mb-2 px-1">
                     <Filter className="w-3 h-3 text-emerald-500" />
@@ -339,26 +281,27 @@
                   </div>
                 </div>
 
-                {/* 報名列表區 */}
                 <div className="space-y-3">
+                  {/* 使用 filteredDates 而不是 practiceDates */}
                   {filteredDates.length > 0 ? (
                     filteredDates.map(date => {
                       const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
                       return (
-                        <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98] hover:bg-[#1a3329] transition-colors">
+                        <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98]">
                           <div className="flex items-center gap-4">
                             <div className={`w-12 h-12 rounded-xl flex items-center justify-center border flex-shrink-0 ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}>
-                              <Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} />
+                                <Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} />
                             </div>
                             <div className="flex-1 min-w-0">
-                              <div className="font-bold text-base whitespace-pre-wrap break-words leading-tight mb-1">{date}</div>
-                              <div className={`text-xs font-bold ${isAttending ? 'text-emerald-500' : 'text-gray-500'}`}>
-                                {isAttending ? '已報名' : '未報名'}
-                              </div>
+                                {/* whitespace-pre-wrap 確保換行顯示 */}
+                                <div className="font-bold whitespace-pre-wrap leading-tight mb-1">{date}</div>
+                                <div className={`text-xs font-bold ${isAttending ? 'text-emerald-500' : 'text-gray-500'}`}>
+                                    {isAttending ? '已報名' : '未報名'}
+                                </div>
                             </div>
                           </div>
                           <div className={`relative w-14 h-8 rounded-full transition-colors flex-shrink-0 ml-2 ${isAttending ? 'bg-emerald-500' : 'bg-gray-700'}`}>
-                            <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} />
+                              <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} />
                           </div>
                         </div>
                       );
@@ -372,10 +315,10 @@
                 </div>
               </div>
             ) : (
-              // Dashboard Tab
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
                 <div className="flex items-center justify-between mb-8 bg-[#142820] p-4 rounded-2xl border border-emerald-900/30">
                   <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
+                  {/* Dashboard 使用原本的列表，並將換行符號轉為空格以利顯示 */}
                   <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm max-w-[200px]">
                     {practiceDates.map(d => <option key={d} value={d}>{d.replace(/\n/g, ' ')}</option>)}
                   </select>

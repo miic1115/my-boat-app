@@ -53,7 +53,6 @@
     // ==========================================
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
     const LIFF_ID = "2009058776-fDhQPTf4";
-    // 已移除密碼設定
     // ==========================================
 
     const App = () => {
@@ -119,25 +118,32 @@
         init();
       }, []);
 
-      // 📅 強化版日期解析器 (保留此功能)
+      // 📅 強化版日期解析器 (修復折疊問題)
       const parseDate = (dateStr) => {
         if (!dateStr) return new Date(0);
-        const currentYear = new Date().getFullYear();
-        let clean = dateStr.split(' ')[0].split('(')[0];
-        let date = new Date(clean);
         
-        if (isNaN(date.getTime()) || date.getFullYear() < 2020) {
+        // 1. 先嘗試直接解析 (處理標準格式)
+        let date = new Date(dateStr);
+        if (!isNaN(date.getTime())) return date;
+
+        // 2. 處理手動格式 "2/8 (日)"
+        const currentYear = new Date().getFullYear();
+        let clean = dateStr.split(' ')[0].split('(')[0]; // 取出 "2/8"
+        
+        date = new Date(clean);
+        // 如果瀏覽器解析 "2/8" 失敗，或年份不對，手動處理
+        if (isNaN(date.getTime()) || date.getFullYear() < 2000) {
           const parts = clean.match(/(\d+)[/-](\d+)/);
           if (parts) {
+            // (年, 月-1, 日)
             date = new Date(currentYear, parseInt(parts[1]) - 1, parseInt(parts[2]));
           }
         }
         return date;
       };
 
-      // 直接認領 (移除密碼檢查)
+      // 直接認領
       const handleBindUser = async (name) => {
-        // 簡單確認防止誤按
         if (!confirm(`確定要認領「${name}」作為您的身份嗎？`)) return;
 
         setIsSaving(true);
@@ -185,7 +191,7 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // 日期分類 (保留折疊邏輯)
+      // 日期分類
       const { pastDates, futureDates } = useMemo(() => {
         const today = new Date();
         today.setHours(0, 0, 0, 0);
@@ -195,10 +201,11 @@
 
         practiceDates.forEach(dateStr => {
           const dateObj = parseDate(dateStr);
-          if (dateObj.getTime() > 0 && dateObj < today) {
+          // 只有當日期有效且小於今天，才算過去
+          if (!isNaN(dateObj.getTime()) && dateObj < today) {
              past.push(dateStr);
           } else {
-             future.push(dateStr);
+             future.push(dateStr); // 其他都當作未來，避免顯示遺漏
           }
         });
         return { pastDates, futureDates };
@@ -226,7 +233,6 @@
         </div>
       );
 
-      // 身分認領畫面 (移除密碼鎖 UI)
       if (!currentUser) return (
         <div className="min-h-screen flex items-center justify-center p-6 relative">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">

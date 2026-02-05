@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>龍舟管理系統 v2.0</title>
+  <title>龍舟管理系統 v2.1</title>
   
   <!-- 1. 樣式與圖標 -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -147,7 +147,7 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // --- 邏輯處理：解析月份 (強化版 v3 - 針對截圖優化) ---
+      // --- 邏輯處理：解析月份 (強化版 v4 - 針對截圖優化) ---
       const getMonthFromDate = (dateStr) => {
         if (!dateStr) return '';
         const s = String(dateStr);
@@ -156,8 +156,6 @@
         // 例如："2/8 (日)\n單人龍測驗" -> 應該抓出 2
         
         // 策略 A: 找 "數字/數字" (M/D)
-        // 這是最穩的，因為日期通常都有斜線
-        // (\d+) 是抓斜線前面的數字，也就是月份
         const slashMatch = s.match(/(\d+)\s*\/\s*\d+/);
         if (slashMatch) {
             return String(parseInt(slashMatch[1], 10)); // 回傳 "2"
@@ -185,13 +183,12 @@
         return Array.from(months).sort((a, b) => parseInt(a) - parseInt(b));
       }, [practiceDates]);
 
-      // 自動切換月份邏輯：如果當前選中的月份沒有資料，則自動切換到有資料的第一個月份
+      // 自動切換月份邏輯
       useEffect(() => {
         if (availableMonths.length > 0 && !availableMonths.includes(selectedMonth)) {
-            // 優先找當前月份之後的月份 (例如現在2月，找 >= 2 的)
+            // 優先找當前月份之後的月份
             const currentM = parseInt(selectedMonth);
             const nextMonth = availableMonths.find(m => parseInt(m) >= currentM);
-            // 如果找不到(例如現在12月，只有1月的資料)，就選列表中的第一個
             setSelectedMonth(nextMonth || availableMonths[0]);
         }
       }, [availableMonths, selectedMonth]);
@@ -227,7 +224,7 @@
       if (!currentUser) return (
         <div className="min-h-screen flex items-center justify-center p-6">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
-            <h1 className="text-2xl font-bold text-center mb-6">身分認領</h1>
+            <h1 className="text-2xl font-bold text-center mb-6">身分認領 v2.1</h1>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {profiles.map(p => (
                 <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group">
@@ -257,6 +254,7 @@
           <main className="max-w-4xl mx-auto px-4 py-6">
             {activeTab === 'signup' ? (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
+                <h1 className="text-[10px] font-bold text-gray-600 text-center mb-2">版本 v2.1 - 月份切換</h1>
                 
                 {/* 代理人切換區 */}
                 <div className="bg-[#142820] p-4 rounded-2xl border border-emerald-900/30 mb-6">
@@ -290,7 +288,9 @@
                         {month} 月
                       </button>
                     )) : (
-                      <div className="text-xs text-gray-500 px-2 py-2">無可用日期</div>
+                      <div className="text-xs text-gray-500 px-2 py-2 border border-dashed border-gray-700 rounded-lg w-full text-center">
+                        系統找不到月份資料，請檢查日期格式
+                      </div>
                     )}
                   </div>
                 </div>
@@ -303,18 +303,18 @@
                       return (
                         <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98] hover:bg-[#1a3329] transition-colors">
                           <div className="flex items-center gap-4">
-                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}>
+                            <div className={`w-12 h-12 rounded-xl flex items-center justify-center border flex-shrink-0 ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}>
                               <Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} />
                             </div>
-                            <div>
-                              {/* 這裡使用 pre-wrap 讓日期中的換行符號 (\n) 能正確顯示出來 */}
-                              <div className="font-bold text-lg whitespace-pre-wrap">{date}</div>
+                            <div className="flex-1 min-w-0">
+                              {/* 這裡使用 pre-wrap 讓日期中的換行符號 (\n) 能正確顯示出來，並處理長文字 */}
+                              <div className="font-bold text-base whitespace-pre-wrap break-words leading-tight mb-1">{date}</div>
                               <div className={`text-xs font-bold ${isAttending ? 'text-emerald-500' : 'text-gray-500'}`}>
                                 {isAttending ? '已報名' : '未報名'}
                               </div>
                             </div>
                           </div>
-                          <div className={`relative w-14 h-8 rounded-full transition-colors ${isAttending ? 'bg-emerald-500' : 'bg-gray-700'}`}>
+                          <div className={`relative w-14 h-8 rounded-full transition-colors flex-shrink-0 ml-2 ${isAttending ? 'bg-emerald-500' : 'bg-gray-700'}`}>
                             <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} />
                           </div>
                         </div>
@@ -333,8 +333,8 @@
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
                 <div className="flex items-center justify-between mb-8 bg-[#142820] p-4 rounded-2xl border border-emerald-900/30">
                   <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
-                  <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm">
-                    {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
+                  <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm max-w-[200px]">
+                    {practiceDates.map(d => <option key={d} value={d}>{d.replace(/\n/g, ' ')}</option>)}
                   </select>
                 </div>
                 <div className="grid grid-cols-3 gap-3 mb-8 text-center">

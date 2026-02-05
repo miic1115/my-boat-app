@@ -5,58 +5,39 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>龍舟管理系統</title>
   
-  <!-- 錯誤捕捉：如果畫面全白，會顯示錯誤原因 -->
-  <script>
-    window.onerror = function(msg, url, line, col, error) {
-      document.getElementById('root').innerHTML = `
-        <div style="padding: 20px; color: #ff6b6b; background: #2d0a0a; min-height: 100vh;">
-          <h2 style="font-size: 1.5rem; font-weight: bold; margin-bottom: 10px;">程式發生錯誤 (Error)</h2>
-          <p style="font-family: monospace;">${msg}</p>
-          <p style="font-size: 0.8rem; opacity: 0.8; margin-top: 10px;">位置: Line ${line}</p>
-          <button onclick="window.location.reload()" style="margin-top: 20px; padding: 10px 20px; background: #ff6b6b; color: white; border: none; border-radius: 8px;">重新整理</button>
-        </div>
-      `;
-    };
-  </script>
-
-  <!-- 1. 樣式 -->
+  <!-- 1. 樣式與圖標 -->
   <script src="https://cdn.tailwindcss.com"></script>
   
   <!-- 2. LINE SDK -->
   <script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 
-  <!-- 3. React 引擎 (Import Map) -->
+  <!-- 3. React 引擎設定 (讓瀏覽器直接看懂 React，不需編譯) -->
   <script type="importmap">
     {
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "lucide-react": "https://esm.sh/lucide-react@0.300.0?bundle"
+        "lucide-react": "https://esm.sh/lucide-react@0.300.0"
       }
     }
   </script>
-  <!-- Babel 編譯器 -->
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body class="bg-[#0a1a12] text-white font-sans antialiased selection:bg-emerald-500/30">
   <div id="root"></div>
 
-  <!-- 4. 應用程式邏輯 -->
-  <script type="text/babel" data-type="module" data-presets="react">
+  <!-- 4. 應用程式邏輯 (直接寫在這裡) -->
+  <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
     import { 
-      Calendar, Ship, ChevronRight, Save, ChevronDown, ChevronUp,
-      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, History
+      Calendar, Ship, ChevronRight, Save, 
+      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, Users 
     } from 'lucide-react';
 
-    // ==========================================
-    // 🛠️ 設定區
-    // ==========================================
+    // --- 設定區 ---
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
     const LIFF_ID = "2009058776-fDhQPTf4";
-    const TEAM_PASSCODE = "8888"; // 通行碼
-    // ==========================================
 
     const App = () => {
       const [activeTab, setActiveTab] = useState('signup');
@@ -70,21 +51,17 @@
       const [errorMsg, setErrorMsg] = useState(null);
       const [isSaving, setIsSaving] = useState(false);
       const [toast, setToast] = useState(null);
-      const [showHistory, setShowHistory] = useState(false);
 
+      // 初始化
       useEffect(() => {
         const init = async () => {
           try {
             // 初始化 LIFF
             if (LIFF_ID && window.liff) {
-              try {
-                await window.liff.init({ liffId: LIFF_ID });
-                if (!window.liff.isLoggedIn()) {
-                  window.liff.login();
-                  return;
-                }
-              } catch (e) {
-                console.warn("LIFF init failed (local testing?):", e);
+              await window.liff.init({ liffId: LIFF_ID });
+              if (!window.liff.isLoggedIn()) {
+                window.liff.login();
+                return;
               }
             }
             
@@ -92,24 +69,19 @@
               ? (await window.liff.getProfile()).userId 
               : "MOCK_USER_ID";
             
-            // 讀取資料
+            // 抓取資料
             const res = await fetch(`${API_URL}?action=getInitialData`);
-            if (!res.ok) throw new Error("網路連線錯誤");
             const data = await res.json();
             
             if (data.error) throw new Error(data.error);
 
-            setProfiles(data.profiles || []);
-            setPracticeDates(data.dates || []);
+            setProfiles(data.profiles);
+            setPracticeDates(data.dates);
             setAttendance(data.attendanceMap || {});
-            
-            // 預設選取最新的日期
-            if (data.dates && data.dates.length > 0) {
-               // 簡單邏輯：選取列表中的第一個（假設後端已排序）
-               setSelectedDate(data.dates[0]);
-            }
+            if (data.dates.length > 0) setSelectedDate(data.dates[0]);
 
-            const boundUser = (data.profiles || []).find(p => p.lineId === userId);
+            // 自動登入
+            const boundUser = data.profiles.find(p => p.lineId === userId);
             if (boundUser) {
               setCurrentUser(boundUser);
               setProxyUser(boundUser);
@@ -117,27 +89,18 @@
             setLoading(false);
           } catch (err) {
             console.error(err);
-            setErrorMsg(err.message || "連線失敗，請檢查 GAS 權限。");
+            setErrorMsg("連線失敗，請確認 GAS 權限設為「任何人」且網址正確。");
             setLoading(false);
           }
         };
         init();
       }, []);
 
+      // 綁定
       const handleBindUser = async (name) => {
-        // 安全鎖檢查
-        const code = prompt(`請輸入通行碼以認領「${name}」：`);
-        if (code !== TEAM_PASSCODE) {
-          alert("❌ 通行碼錯誤！");
-          return;
-        }
-
         setIsSaving(true);
         try {
-          const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
-            ? (await window.liff.getProfile()).userId 
-            : "MOCK_USER_ID";
-            
+          const userId = (LIFF_ID && window.liff) ? (await window.liff.getProfile()).userId : "MOCK_USER_ID";
           await fetch(API_URL, {
             method: 'POST',
             body: JSON.stringify({ action: 'bindLineId', name, lineId: userId })
@@ -145,11 +108,12 @@
           const user = profiles.find(p => p.name === name);
           setCurrentUser(user);
           setProxyUser(user);
-          showToast(`歡迎，${name}！`);
+          showToast(`歡迎，${name}！已綁定。`);
         } catch (err) { alert("綁定失敗"); } 
         finally { setIsSaving(false); }
       };
 
+      // 儲存
       const handleUpdate = async () => {
         setIsSaving(true);
         try {
@@ -177,37 +141,6 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // 📅 日期分類邏輯
-      const { pastDates, futureDates } = useMemo(() => {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-
-        const past = [];
-        const future = [];
-
-        practiceDates.forEach(dateStr => {
-          // 簡單日期解析，處理中文日期格式
-          let dateObj = new Date(dateStr);
-          if (isNaN(dateObj.getTime())) {
-             // 嘗試處理 "2/1 (日)" 這種格式 -> 取 "2/1"
-             const cleanDate = dateStr.split(' ')[0]; 
-             dateObj = new Date(cleanDate);
-             if (isNaN(dateObj.getTime())) {
-               // 如果還是失敗，就當作未來日期
-               const currentYear = new Date().getFullYear();
-               dateObj = new Date(`${currentYear}/${cleanDate}`);
-             }
-          }
-          
-          if (!isNaN(dateObj.getTime()) && dateObj < today) {
-             past.push(dateStr);
-          } else {
-             future.push(dateStr);
-          }
-        });
-        return { pastDates: past, futureDates: future };
-      }, [practiceDates]);
-
       const dashboardStats = useMemo(() => {
         const attendees = profiles.filter(p => attendance[`${p.name}_${selectedDate}`] === '參加');
         const male = attendees.filter(p => p.gender === '男').length;
@@ -220,7 +153,8 @@
         return { total: attendees.length, male, female, manifest };
       }, [selectedDate, attendance, profiles]);
 
-      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold">載入中...</div>;
+      // --- 渲染畫面 ---
+      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold">資料載入中...</div>;
       
       if (errorMsg) return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
@@ -233,11 +167,10 @@
       if (!currentUser) return (
         <div className="min-h-screen flex items-center justify-center p-6">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
-            <h1 className="text-2xl font-bold text-center mb-2">身分認領</h1>
-            <p className="text-gray-400 text-center mb-6 text-xs">首次使用請認領您的名字 (需輸入通行碼)</p>
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+            <h1 className="text-2xl font-bold text-center mb-6">身分認領</h1>
+            <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {profiles.map(p => (
-                <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group active:scale-[0.98] transition-all">
+                <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group">
                   <span className="font-bold">{p.name}</span>
                   <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-emerald-500" />
                 </button>
@@ -272,41 +205,8 @@
                     <ArrowRightLeft className="absolute right-4 top-3.5 w-4 h-4 text-emerald-500/50 pointer-events-none" />
                   </div>
                 </div>
-
-                {/* --- 過去的行程 (收折區) --- */}
-                {pastDates.length > 0 && (
-                  <div className="mb-6">
-                    <button 
-                      onClick={() => setShowHistory(!showHistory)} 
-                      className="w-full flex items-center justify-center gap-2 py-3 border border-dashed border-gray-700 rounded-xl text-gray-500 text-xs hover:bg-gray-800/30 transition-colors"
-                    >
-                      <History className="w-4 h-4" />
-                      {showHistory ? "隱藏歷史行程" : `顯示 ${pastDates.length} 個已結束的行程`}
-                      {showHistory ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
-                    </button>
-                    
-                    {showHistory && (
-                      <div className="space-y-3 mt-4 animate-in slide-in-from-top-2 opacity-70">
-                        {pastDates.map(date => {
-                          const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
-                          return (
-                            <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-gray-800 rounded-2xl p-4 flex items-center justify-between cursor-pointer grayscale opacity-80">
-                              <div className="flex items-center gap-4">
-                                <div className="w-12 h-12 rounded-xl flex items-center justify-center border border-gray-700 bg-gray-800/30 text-gray-500"><Calendar className="w-5 h-5" /></div>
-                                <div className="text-gray-500 font-bold">{date}</div>
-                              </div>
-                              <div className={`relative w-14 h-8 rounded-full transition-colors ${isAttending ? 'bg-emerald-800' : 'bg-gray-800'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white/50 rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} /></div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* --- 未來的行程 --- */}
                 <div className="space-y-3">
-                  {futureDates.length > 0 ? futureDates.map(date => {
+                  {practiceDates.map(date => {
                     const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
                     return (
                       <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#142820] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98]">
@@ -317,9 +217,7 @@
                         <div className={`relative w-14 h-8 rounded-full transition-colors ${isAttending ? 'bg-emerald-500' : 'bg-gray-700'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} /></div>
                       </div>
                     );
-                  }) : (
-                    <div className="text-center py-10 text-gray-500">沒有即將到來的練習</div>
-                  )}
+                  })}
                 </div>
               </div>
             ) : (

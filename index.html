@@ -147,15 +147,29 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // --- 邏輯處理：解析月份 ---
-      // 輔助函式：從日期字串抓取月份
+      // --- 邏輯處理：解析月份 (強化版) ---
       const getMonthFromDate = (dateStr) => {
         if (!dateStr) return '';
-        // 優先嘗試用 '/' 分割 (例如 "3/15" -> "3", "11/02" -> "11")
-        const parts = dateStr.split('/');
-        if (parts.length > 1) return parts[0];
-        // 如果格式很單純，就依需求抓第一個字 (但這可能會把 11月誤判為 1月，建議盡量用 '/' 分隔)
-        return dateStr.charAt(0);
+        
+        // 1. 處理斜線格式 (支援 yyyy/mm/dd 或 mm/dd)
+        if (dateStr.includes('/')) {
+            const parts = dateStr.split('/');
+            // 如果是 yyyy/mm/dd (parts長度3)，取中間；如果是 mm/dd (parts長度2)，取前面
+            const m = parts.length === 3 ? parts[1] : parts[0];
+            // 使用 parseInt 去除開頭的 0 (例如 "03" -> "3")
+            return String(parseInt(m, 10));
+        }
+        
+        // 2. 處理中文格式 "3月5日" 或 "11月2日"
+        const match = dateStr.match(/(\d+)月/);
+        if (match) {
+            return String(parseInt(match[1], 10));
+        }
+
+        // 3. 最後手段：依照需求抓前面的數字 (如 "3.5" -> "3")
+        // 使用 parseInt 比 charAt(0) 安全，因為可以支援 10, 11, 12 月
+        const firstNum = parseInt(dateStr, 10);
+        return !isNaN(firstNum) ? String(firstNum) : '';
       };
 
       // 計算所有可用的月份 (去重複並排序)
@@ -168,6 +182,17 @@
         // 數字排序 (例如 3, 4, 11, 12)
         return Array.from(months).sort((a, b) => parseInt(a) - parseInt(b));
       }, [practiceDates]);
+
+      // 自動切換月份邏輯：如果當前選中的月份沒有資料，則自動切換到有資料的第一個月份
+      useEffect(() => {
+        if (availableMonths.length > 0 && !availableMonths.includes(selectedMonth)) {
+            // 優先找當前月份之後的月份 (例如現在2月，找 >= 2 的)
+            const currentM = parseInt(selectedMonth);
+            const nextMonth = availableMonths.find(m => parseInt(m) >= currentM);
+            // 如果找不到(例如現在12月，只有1月的資料)，就選列表中的第一個
+            setSelectedMonth(nextMonth || availableMonths[0]);
+        }
+      }, [availableMonths, selectedMonth]);
 
       // 根據選中的月份過濾日期列表
       const filteredDates = useMemo(() => {

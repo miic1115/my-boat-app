@@ -147,28 +147,30 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // --- 邏輯處理：解析月份 (強化版) ---
+      // --- 邏輯處理：解析月份 (強化版 v3 - 針對截圖優化) ---
       const getMonthFromDate = (dateStr) => {
         if (!dateStr) return '';
+        const s = String(dateStr);
         
-        // 1. 處理斜線格式 (支援 yyyy/mm/dd 或 mm/dd)
-        if (dateStr.includes('/')) {
-            const parts = dateStr.split('/');
-            // 如果是 yyyy/mm/dd (parts長度3)，取中間；如果是 mm/dd (parts長度2)，取前面
-            const m = parts.length === 3 ? parts[1] : parts[0];
-            // 使用 parseInt 去除開頭的 0 (例如 "03" -> "3")
-            return String(parseInt(m, 10));
-        }
+        // 針對截圖情況：處理換行符號、處理後面的文字備註
+        // 例如："2/8 (日)\n單人龍測驗" -> 應該抓出 2
         
-        // 2. 處理中文格式 "3月5日" 或 "11月2日"
-        const match = dateStr.match(/(\d+)月/);
-        if (match) {
-            return String(parseInt(match[1], 10));
+        // 策略 A: 找 "數字/數字" (M/D)
+        // 這是最穩的，因為日期通常都有斜線
+        // (\d+) 是抓斜線前面的數字，也就是月份
+        const slashMatch = s.match(/(\d+)\s*\/\s*\d+/);
+        if (slashMatch) {
+            return String(parseInt(slashMatch[1], 10)); // 回傳 "2"
         }
 
-        // 3. 最後手段：依照需求抓前面的數字 (如 "3.5" -> "3")
-        // 使用 parseInt 比 charAt(0) 安全，因為可以支援 10, 11, 12 月
-        const firstNum = parseInt(dateStr, 10);
+        // 策略 B: 找 "X月"
+        const chineseMatch = s.match(/(\d+)\s*月/);
+        if (chineseMatch) {
+            return String(parseInt(chineseMatch[1], 10));
+        }
+
+        // 策略 C: 真的沒辦法，只好抓開頭數字
+        const firstNum = parseInt(s, 10);
         return !isNaN(firstNum) ? String(firstNum) : '';
       };
 
@@ -305,7 +307,8 @@
                               <Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} />
                             </div>
                             <div>
-                              <div className="font-bold text-lg">{date}</div>
+                              {/* 這裡使用 pre-wrap 讓日期中的換行符號 (\n) 能正確顯示出來 */}
+                              <div className="font-bold text-lg whitespace-pre-wrap">{date}</div>
                               <div className={`text-xs font-bold ${isAttending ? 'text-emerald-500' : 'text-gray-500'}`}>
                                 {isAttending ? '已報名' : '未報名'}
                               </div>

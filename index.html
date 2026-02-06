@@ -26,6 +26,22 @@
     /* 隱藏橫向捲軸但保留功能 */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    
+    /* 水波紋動畫 */
+    @keyframes ripple {
+      0% { transform: scale(0.8); opacity: 1; }
+      100% { transform: scale(2.5); opacity: 0; }
+    }
+    .ripple-effect {
+      position: absolute;
+      width: 80px;
+      height: 80px;
+      border-radius: 50%;
+      border: 2px solid #34d399; /* emerald-400 */
+      animation: ripple 2s infinite ease-out;
+    }
+    .ripple-effect:nth-child(2) { animation-delay: 0.6s; }
+    .ripple-effect:nth-child(3) { animation-delay: 1.2s; }
   </style>
 </head>
 <body class="bg-[#151716] text-white font-sans antialiased selection:bg-emerald-500/30">
@@ -44,6 +60,15 @@
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
     const LIFF_ID = "2009058776-fDhQPTf4";
 
+    // 載入時的隨機標語
+    const LOADING_MSGS = [
+      "正在努力划向伺服器，請稍候...",
+      "等待時間可以做波比跳度過... 1 下 2 下",
+      "槳頻 30 是有點慢...",
+      "Expect More of Yourself.",
+      "Reset to Zero. Paddle for Life."
+    ];
+
     const App = () => {
       const [activeTab, setActiveTab] = useState('signup');
       const [profiles, setProfiles] = useState([]);
@@ -57,11 +82,24 @@
       const [isSaving, setIsSaving] = useState(false);
       const [toast, setToast] = useState(null);
 
-      // ★★★ 新增：月份狀態 ★★★
+      // 新增：月份狀態
       const [selectedMonth, setSelectedMonth] = useState(null);
       
-      // ★★★ 新增：記錄正在綁定誰 (顯示轉圈圈用) ★★★
+      // 新增：記錄正在綁定誰 (顯示轉圈圈用)
       const [bindingTarget, setBindingTarget] = useState(null);
+
+      // 新增：載入訊息輪播索引
+      const [msgIndex, setMsgIndex] = useState(0);
+
+      // 載入訊息輪播邏輯
+      useEffect(() => {
+        if (loading) {
+          const interval = setInterval(() => {
+            setMsgIndex((prev) => (prev + 1) % LOADING_MSGS.length);
+          }, 2500); // 每 2.5 秒換一句
+          return () => clearInterval(interval);
+        }
+      }, [loading]);
 
       // 初始化
       useEffect(() => {
@@ -91,11 +129,11 @@
             setAttendance(data.attendanceMap || {});
             
             if (data.dates.length > 0) {
-              // ★★★ 智慧預設：選取離今天最近的日期 (看板用) ★★★
+              // 智慧預設：選取離今天最近的日期 (看板用)
               let bestDate = data.dates[0];
               try {
                 const today = new Date();
-                today.setHours(0, 0, 0, 0); // 歸零時間，只比對日期
+                today.setHours(0, 0, 0, 0);
 
                 let minDiff = Infinity;
                 
@@ -104,9 +142,7 @@
                    if (s.includes('/')) {
                      const [m, d] = s.split('/').map(n => parseInt(n, 10));
                      let target = new Date(today.getFullYear(), m - 1, d);
-                     
                      const diff = Math.abs(target - today);
-                     
                      if (diff < minDiff) {
                        minDiff = diff;
                        bestDate = dStr;
@@ -117,18 +153,15 @@
               
               setSelectedDate(bestDate);
 
-              // ★★★ 新增：初始化月份邏輯 (報名列表用) ★★★
+              // 初始化月份邏輯 (報名列表用)
               try {
-                // 1. 抓出所有不重複的月份
                 const months = [...new Set(data.dates.map(d => {
                   const str = String(d);
                   return str.includes('/') ? parseInt(str.split('/')[0], 10) : null;
                 }))].filter(m => m !== null).sort((a,b) => a-b);
 
-                // 2. 判斷當前月份
                 const currentMonth = new Date().getMonth() + 1;
                 
-                // 3. 預設選取
                 if (months.includes(currentMonth)) {
                   setSelectedMonth(currentMonth);
                 } else if (months.length > 0) {
@@ -157,10 +190,10 @@
 
       // 綁定
       const handleBindUser = async (name) => {
-        if (isSaving) return; // 防止重複點擊
+        if (isSaving) return;
 
         setIsSaving(true);
-        setBindingTarget(name); // ★★★ 設定正在轉圈圈的目標 ★★★
+        setBindingTarget(name);
 
         try {
           const userId = (LIFF_ID && window.liff) ? (await window.liff.getProfile()).userId : "MOCK_USER_ID";
@@ -176,7 +209,7 @@
           alert("綁定失敗"); 
         } finally { 
           setIsSaving(false); 
-          setBindingTarget(null); // ★★★ 清除轉圈圈目標 ★★★
+          setBindingTarget(null);
         }
       };
 
@@ -197,14 +230,11 @@
         finally { setIsSaving(false); }
       };
 
-      // ★★★ 複製到 Excel 的功能 ★★★
+      // 複製到 Excel 的功能
       const handleCopyExcel = () => {
         const { Left, Right, Staff } = dashboardStats.manifest;
         const maxLen = Math.max(Left.length, Right.length, Staff.length);
-        
-        // 格式：左槳 \t 右槳 \t 舵手 (tab 分隔，Excel 會自動分欄)
         let text = "";
-        
         for(let i=0; i<maxLen; i++) {
           const l = Left[i] ? Left[i].name : "";
           const r = Right[i] ? Right[i].name : "";
@@ -212,7 +242,6 @@
           text += `${l}\t${r}\t${s}\n`;
         }
         
-        // 執行複製
         const doCopy = (txt) => {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(txt)
@@ -251,7 +280,6 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // ★★★ 新增：計算可用月份 ★★★
       const availableMonths = useMemo(() => {
         if (!practiceDates.length) return [];
         const months = new Set();
@@ -262,7 +290,6 @@
         return Array.from(months).sort((a, b) => a - b);
       }, [practiceDates]);
 
-      // ★★★ 新增：根據月份過濾日期 ★★★
       const filteredDates = useMemo(() => {
         if (!selectedMonth) return practiceDates;
         return practiceDates.filter(d => {
@@ -284,7 +311,28 @@
       }, [selectedDate, attendance, profiles]);
 
       // --- 渲染畫面 ---
-      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold text-center px-4">載入派兜出席表<br/>等待時做波比跳度過會更快</div>;
+      if (loading) return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-[#151716] relative overflow-hidden">
+          {/* 水波紋動畫 */}
+          <div className="relative flex items-center justify-center mb-8">
+            <div className="ripple-effect"></div>
+            <div className="ripple-effect"></div>
+            <div className="ripple-effect"></div>
+            <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center z-10 shadow-[0_0_20px_rgba(16,185,129,0.5)]">
+              <Ship className="w-10 h-10 text-[#151716]" />
+            </div>
+          </div>
+          
+          <h1 className="text-2xl font-bold text-white mb-4 z-10">歡迎登入派兜出席表</h1>
+          
+          {/* 隨機標語 */}
+          <div className="h-8 flex items-center justify-center z-10">
+            <p className="text-emerald-400 font-medium text-sm animate-pulse transition-all duration-500 text-center px-6">
+              {LOADING_MSGS[msgIndex]}
+            </p>
+          </div>
+        </div>
+      );
       
       if (errorMsg) return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
@@ -304,11 +352,10 @@
                 <button 
                   key={p.name} 
                   onClick={() => handleBindUser(p.name)} 
-                  disabled={isSaving} // 綁定中禁止點擊
+                  disabled={isSaving}
                   className={`w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group transition-all ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:border-emerald-500/50'}`}
                 >
                   <span className="font-bold">{p.name}</span>
-                  {/* ★★★ 判斷是否顯示轉圈圈 ★★★ */}
                   {isSaving && bindingTarget === p.name ? (
                     <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
                   ) : (
@@ -347,7 +394,7 @@
                   </div>
                 </div>
 
-                {/* ★★★ 月份 Tabs (綠色風格) ★★★ */}
+                {/* 月份 Tabs */}
                 {availableMonths.length > 0 && (
                   <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
                     {availableMonths.map(m => (
@@ -363,7 +410,6 @@
                 )}
 
                 <div className="space-y-3">
-                  {/* 使用 filteredDates 來渲染列表 */}
                   {filteredDates.length === 0 && <div className="text-center text-gray-500 py-4">本月無行程</div>}
                   {filteredDates.map(date => {
                     const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
@@ -414,10 +460,10 @@
           </main>
 
           {activeTab === 'signup' && (
-            <div className="fixed bottom-8 right-6 z-50">
-              <button onClick={handleUpdate} disabled={isSaving} className="flex items-center gap-3 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-[#0a1a12] rounded-2xl font-black shadow-2xl disabled:opacity-50 transition-all active:scale-95">
+            <div className="fixed bottom-8 left-0 right-0 px-6 z-50 flex justify-center">
+              <button onClick={handleUpdate} disabled={isSaving} className="w-full max-w-sm flex items-center justify-center gap-3 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-[#0a1a12] rounded-2xl font-black shadow-2xl disabled:opacity-50 transition-all active:scale-95">
                 {isSaving ? <div className="w-5 h-5 border-2 border-[#0a1a12]/30 border-t-[#0a1a12] rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
-                儲存變更
+                儲存 ”{proxyUser?.name}“ 資料
               </button>
             </div>
           )}

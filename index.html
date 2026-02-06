@@ -28,7 +28,8 @@
             card: '#1C1C1E', 
             accent: '#2DD4BF', // 藍綠色 (Teal)
             text: '#FFFFFF',
-            subtext: '#8E8E93'
+            subtext: '#8E8E93',
+            border: '#2C2C2E'
           }
         }
       }
@@ -40,19 +41,19 @@
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     body { background-color: #000000; color: #FFFFFF; -webkit-tap-highlight-color: transparent; }
     
-    /* 防止點擊時出現藍框 */
-    * { -webkit-tap-highlight-color: transparent; }
+    /* 平滑過度 */
+    .transition-all { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
   </style>
 </head>
-<body class="antialiased">
+<body class="antialiased selection:bg-accent/30">
   <div id="root"></div>
 
   <script type="text/babel" data-type="module">
     import React, { useState, useEffect, useMemo } from 'react';
     import { createRoot } from 'react-dom/client';
-    import { Calendar, Ship, ChevronRight, Save, CheckCircle2, ArrowRightLeft, AlertTriangle } from 'lucide-react';
+    import { Calendar, Ship, ChevronRight, Save, CheckCircle2, ArrowRightLeft, AlertTriangle, UserCircle2 } from 'lucide-react';
 
-    // --- 參數區 (保持完全一致) ---
+    // --- 參數區 ---
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
     const LIFF_ID = "2009058776-fDhQPTf4";
 
@@ -96,13 +97,33 @@
               setSelectedMonth(uniqueMonths.includes(currentRealMonth) ? currentRealMonth : uniqueMonths[0]);
             }
 
+            // 核心邏輯：根據 Line ID 媒合身分
             const boundUser = data.profiles?.find(p => p.lineId === userId);
-            if (boundUser) { setCurrentUser(boundUser); setProxyUser(boundUser); }
+            if (boundUser) { 
+              setCurrentUser(boundUser); 
+              setProxyUser(boundUser); 
+            }
+            
             setLoading(false);
-          } catch (err) { setErrorMsg("連線失敗"); setLoading(false); }
+          } catch (err) { setErrorMsg("連線失敗，請稍後再試"); setLoading(false); }
         };
         init();
       }, []);
+
+      const handleBindUser = async (name) => {
+        setIsSaving(true);
+        try {
+          const userId = (LIFF_ID && window.liff) ? (await window.liff.getProfile()).userId : "MOCK_USER_ID";
+          await fetch(API_URL, {
+            method: 'POST',
+            body: JSON.stringify({ action: 'bindLineId', name, lineId: userId })
+          });
+          const user = profiles.find(p => p.name === name);
+          setCurrentUser(user);
+          setProxyUser(user);
+          showToast(`已成功連結：${name}`);
+        } catch (err) { alert("綁定失敗"); } finally { setIsSaving(false); }
+      };
 
       const handleUpdate = async () => {
         setIsSaving(true);
@@ -110,7 +131,7 @@
           const updates = {};
           practiceDates.forEach(date => { updates[date] = attendance[`${proxyUser.name}_${date}`] || '不參加'; });
           await fetch(API_URL, { method: 'POST', body: JSON.stringify({ action: 'updateAttendance', name: proxyUser.name, updates }) });
-          showToast('已儲存！');
+          showToast('資料已更新');
         } catch (err) { alert("儲存失敗"); } finally { setIsSaving(false); }
       };
 
@@ -145,155 +166,68 @@
         };
       }, [selectedDate, attendance, profiles]);
 
-      if (loading) return <div className="min-h-screen flex items-center justify-center bg-black text-accent font-bold">載入中...</div>;
+      if (loading) return (
+        <div className="min-h-screen flex flex-col items-center justify-center bg-black gap-4">
+          <div className="w-8 h-8 border-4 border-accent border-t-transparent rounded-full animate-spin"></div>
+          <span className="text-accent font-bold tracking-widest text-xs uppercase">Connecting</span>
+        </div>
+      );
 
+      // --- 首次登入身分認領介面 (媒合身份) ---
+      if (!currentUser) return (
+        <div className="min-h-screen bg-black flex flex-col items-center p-8">
+          <div className="w-full max-w-md mt-12 animate-in fade-in slide-in-from-top-4 duration-700">
+            <h1 className="text-3xl font-black mb-2 tracking-tight">身分認領</h1>
+            <p className="text-subtext text-sm mb-10 tracking-wide">請在下方名單中選擇您的名字，以連結 LINE 帳號。</p>
+            
+            <div className="space-y-3 max-h-[60vh] overflow-y-auto no-scrollbar pr-1">
+              {profiles.filter(p => !p.lineId).map(p => (
+                <button 
+                  key={p.name} 
+                  onClick={() => handleBindUser(p.name)} 
+                  className="w-full p-5 bg-card border border-white/5 rounded-[22px] text-left flex justify-between items-center group active:scale-[0.98] transition-all"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-subtext group-hover:text-accent transition-colors">
+                      <UserCircle2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <span className="font-bold text-lg block">{p.name}</span>
+                      <span className="text-[10px] text-subtext uppercase font-bold tracking-widest">{p.position} / {p.gender}</span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-gray-700 group-hover:text-accent transition-all" />
+                </button>
+              ))}
+              {profiles.filter(p => !p.lineId).length === 0 && (
+                <div className="text-center py-20">
+                  <AlertTriangle className="w-12 h-12 text-yellow-500/50 mx-auto mb-4" />
+                  <p className="text-subtext text-sm italic">目前沒有可認領的身分</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+
+      // --- 主介面 ---
       return (
         <div className="min-h-screen bg-black text-white pb-32">
           {/* Header */}
-          <nav className="sticky top-0 z-40 bg-black/95 border-b border-white/10 h-16 flex items-center justify-between px-6">
+          <nav className="sticky top-0 z-40 bg-black/95 backdrop-blur-lg border-b border-white/5 h-16 flex items-center justify-between px-6">
             <div className="flex bg-card p-1 rounded-full border border-white/5">
-              <button onClick={() => setActiveTab('signup')} className={`px-5 py-1.5 rounded-full font-bold text-xs transition-all ${activeTab === 'signup' ? 'bg-accent text-black' : 'text-subtext'}`}>報名</button>
-              <button onClick={() => setActiveTab('dashboard')} className={`px-5 py-1.5 rounded-full font-bold text-xs transition-all ${activeTab === 'dashboard' ? 'bg-accent text-black' : 'text-subtext'}`}>看板</button>
+              <button onClick={() => setActiveTab('signup')} className={`px-5 py-1.5 rounded-full font-bold text-xs transition-all ${activeTab === 'signup' ? 'bg-accent text-black shadow-lg shadow-accent/20' : 'text-subtext'}`}>我要報名</button>
+              <button onClick={() => setActiveTab('dashboard')} className={`px-5 py-1.5 rounded-full font-bold text-xs transition-all ${activeTab === 'dashboard' ? 'bg-accent text-black shadow-lg shadow-accent/20' : 'text-subtext'}`}>出席看板</button>
             </div>
             <div className="flex flex-col items-end">
-              <span className="text-[10px] text-accent font-bold uppercase tracking-wider">User</span>
-              <span className="text-sm font-bold">{currentUser?.name || "未登入"}</span>
+              <span className="text-[10px] text-accent font-bold uppercase tracking-widest">Profile</span>
+              <span className="text-sm font-bold tracking-tight">{currentUser.name}</span>
             </div>
           </nav>
 
           <main className="max-w-2xl mx-auto px-6 py-8">
             {activeTab === 'signup' ? (
               <div className="space-y-8 animate-in fade-in duration-500">
-                {/* 身份切換 */}
-                <div className="bg-card p-5 rounded-3xl border border-white/5 shadow-sm">
-                  <label className="text-[10px] font-bold text-subtext mb-3 block uppercase tracking-widest">目前身份</label>
-                  <div className="relative">
-                    <select value={proxyUser?.name} onChange={(e) => setProxyUser(profiles.find(p => p.name === e.target.value))} className="w-full bg-black/50 border border-white/10 rounded-2xl px-4 py-4 text-white font-bold focus:outline-none appearance-none transition-colors focus:border-accent">
-                      {profiles.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
-                    </select>
-                    <ArrowRightLeft className="absolute right-4 top-4 w-5 h-5 text-accent pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* 月份選擇 (膠囊型 Tab) */}
-                <div className="space-y-4">
-                  <h3 className="text-sm font-bold text-subtext tracking-wide px-1">選擇訓練月份</h3>
-                  <div className="flex gap-2 overflow-x-auto no-scrollbar py-1">
-                    {availableMonths.map(m => (
-                      <button 
-                        key={m} 
-                        onClick={() => setSelectedMonth(m)} 
-                        className={`px-8 py-2.5 rounded-full text-sm font-black border transition-all ${selectedMonth === m ? 'bg-accent text-black border-accent' : 'bg-card text-subtext border-white/5'}`}
-                      >
-                        {m}月
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* 日期列表 (恢復使用日曆圖示) */}
-                <div className="space-y-4">
-                  {filteredDates.length === 0 && <div className="text-center text-subtext py-12 text-sm italic">本月尚無安排訓練日期</div>}
-                  {filteredDates.map(date => {
-                    const isAttending = attendance[`${proxyUser?.name}_${date}`] === '參加';
-                    return (
-                      <div key={date} onClick={() => toggleAttendance(date)} className={`bg-card border-2 rounded-[28px] p-5 flex items-center justify-between transition-all duration-300 active:scale-95 ${isAttending ? 'border-accent/40 bg-accent/[0.03]' : 'border-transparent'}`}>
-                        <div className="flex items-center gap-5">
-                          {/* 恢復為原先的 Calendar Icon */}
-                          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center transition-all ${isAttending ? 'bg-accent text-black shadow-[0_0_15px_rgba(45,212,191,0.3)]' : 'bg-white/5 text-subtext'}`}>
-                            <Calendar className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <div className={`font-bold text-lg tracking-tight transition-colors ${isAttending ? 'text-white' : 'text-subtext'}`}>{date}</div>
-                          </div>
-                        </div>
-                        {/* 開關 UI */}
-                        <div className={`relative w-14 h-8 rounded-full transition-all duration-300 ${isAttending ? 'bg-accent shadow-[0_0_15px_rgba(45,212,191,0.2)]' : 'bg-white/10'}`}>
-                          <div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform duration-300 ${isAttending ? 'translate-x-6' : 'translate-x-0'} shadow-md`} />
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ) : (
-              /* 看板頁面 */
-              <div className="space-y-8 animate-in fade-in duration-500">
-                <div className="bg-card p-5 rounded-3xl border border-white/5 flex items-center justify-between">
-                  <span className="text-sm font-bold text-subtext">訓練日期</span>
-                  <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-black text-accent border border-white/10 rounded-xl px-4 py-2 font-black text-sm outline-none">
-                    {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
-                </div>
-
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="bg-card p-6 rounded-3xl border border-white/5 text-center">
-                    <div className="text-3xl font-black text-accent mb-1">{dashboardStats.total}</div>
-                    <div className="text-[10px] font-bold text-subtext uppercase tracking-widest">總數</div>
-                  </div>
-                  <div className="bg-card p-6 rounded-3xl border border-white/5 text-center">
-                    <div className="text-3xl font-black text-blue-400 mb-1">{dashboardStats.male}</div>
-                    <div className="text-[10px] font-bold text-subtext uppercase tracking-widest">男</div>
-                  </div>
-                  <div className="bg-card p-6 rounded-3xl border border-white/5 text-center">
-                    <div className="text-3xl font-black text-pink-400 mb-1">{dashboardStats.female}</div>
-                    <div className="text-[10px] font-bold text-subtext uppercase tracking-widest">女</div>
-                  </div>
-                </div>
-
-                <div className="space-y-6">
-                  {dashboardStats.manifest.Staff.length > 0 && (
-                    <div className="bg-card p-5 rounded-3xl border border-white/5">
-                      <h4 className="text-[10px] font-black text-accent mb-4 uppercase tracking-widest">舵手與鼓手</h4>
-                      <div className="flex flex-wrap gap-2">
-                        {dashboardStats.manifest.Staff.map(p => (
-                          <div key={p.name} className="px-4 py-2 bg-black/50 border border-white/10 rounded-xl text-sm font-bold flex items-center gap-2">
-                            {p.name} <span className="text-[10px] text-accent/50">{p.position}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    {['Left', 'Right'].map(side => (
-                      <div key={side} className="space-y-4">
-                        <h4 className="text-[10px] font-black text-subtext uppercase tracking-widest px-2">{side === 'Left' ? '左槳' : '右槳'}</h4>
-                        {dashboardStats.manifest[side].map(p => (
-                          <div key={p.name} className={`p-4 bg-card rounded-2xl border-l-4 ${side === 'Left' ? 'border-accent' : 'border-blue-500'} flex justify-between items-center`}>
-                            <span className="font-bold text-sm">{p.name}</span>
-                            <span className="text-[10px] text-subtext">{p.gender}</span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </main>
-
-          {/* 儲存按鈕 (懸浮固定) */}
-          {activeTab === 'signup' && (
-            <div className="fixed bottom-10 left-0 right-0 px-8 z-50 flex justify-center">
-              <button onClick={handleUpdate} disabled={isSaving} className="w-full max-w-sm h-16 bg-accent hover:scale-[1.02] active:scale-95 text-black rounded-3xl font-black text-lg shadow-[0_12px_24px_rgba(45,212,191,0.3)] transition-all flex items-center justify-center gap-3 disabled:opacity-50">
-                {isSaving ? <div className="w-6 h-6 border-3 border-black/30 border-t-black rounded-full animate-spin" /> : <Save className="w-6 h-6" />}
-                儲存變更
-              </button>
-            </div>
-          )}
-
-          {toast && (
-            <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-accent text-black px-8 py-3 rounded-full font-black shadow-2xl z-[100] animate-in slide-in-from-top-4">
-              {toast}
-            </div>
-          )}
-        </div>
-      );
-    };
-
-    const root = createRoot(document.getElementById('root'));
-    root.render(<App />);
-  </script>
-</body>
-</html>
+                {/* 身份切換 (代理人) */}
+                <div className="bg-card p-5 rounded-[28px] border border-white/5 shadow-sm">
+                  <label className="text-[10px] font-bold text-subtext mb-3 block uppercase tracking-widest

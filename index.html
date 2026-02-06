@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>龍舟管理系統</title>
+  <title>派兜出席系統</title>
   
   <!-- 1. 樣式與圖標 -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -28,7 +28,7 @@
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-[#0a1a12] text-white font-sans antialiased selection:bg-emerald-500/30">
+<body class="bg-[#1B1D1C] text-white font-sans antialiased selection:bg-emerald-500/30">
   <div id="root"></div>
 
   <!-- 4. 應用程式邏輯 -->
@@ -37,7 +37,7 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Calendar, Ship, ChevronRight, Save, 
-      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, Users 
+      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, Users, Loader2
     } from 'lucide-react';
 
     // --- 設定區 (完全不更動) ---
@@ -59,6 +59,9 @@
 
       // ★★★ 新增：月份狀態 ★★★
       const [selectedMonth, setSelectedMonth] = useState(null);
+      
+      // ★★★ 新增：記錄正在綁定誰 (顯示轉圈圈用) ★★★
+      const [bindingTarget, setBindingTarget] = useState(null);
 
       // 初始化
       useEffect(() => {
@@ -88,9 +91,33 @@
             setAttendance(data.attendanceMap || {});
             
             if (data.dates.length > 0) {
-              setSelectedDate(data.dates[0]);
+              // ★★★ 智慧預設：選取離今天最近的日期 (看板用) ★★★
+              let bestDate = data.dates[0];
+              try {
+                const today = new Date();
+                today.setHours(0, 0, 0, 0); // 歸零時間，只比對日期
 
-              // ★★★ 新增：初始化月份邏輯 ★★★
+                let minDiff = Infinity;
+                
+                data.dates.forEach(dStr => {
+                   const s = String(dStr);
+                   if (s.includes('/')) {
+                     const [m, d] = s.split('/').map(n => parseInt(n, 10));
+                     let target = new Date(today.getFullYear(), m - 1, d);
+                     
+                     const diff = Math.abs(target - today);
+                     
+                     if (diff < minDiff) {
+                       minDiff = diff;
+                       bestDate = dStr;
+                     }
+                   }
+                });
+              } catch(e) { console.error("Smart default date error", e); }
+              
+              setSelectedDate(bestDate);
+
+              // ★★★ 新增：初始化月份邏輯 (報名列表用) ★★★
               try {
                 // 1. 抓出所有不重複的月份
                 const months = [...new Set(data.dates.map(d => {
@@ -130,7 +157,11 @@
 
       // 綁定
       const handleBindUser = async (name) => {
+        if (isSaving) return; // 防止重複點擊
+
         setIsSaving(true);
+        setBindingTarget(name); // ★★★ 設定正在轉圈圈的目標 ★★★
+
         try {
           const userId = (LIFF_ID && window.liff) ? (await window.liff.getProfile()).userId : "MOCK_USER_ID";
           await fetch(API_URL, {
@@ -141,8 +172,12 @@
           setCurrentUser(user);
           setProxyUser(user);
           showToast(`歡迎，${name}！已綁定。`);
-        } catch (err) { alert("綁定失敗"); } 
-        finally { setIsSaving(false); }
+        } catch (err) { 
+          alert("綁定失敗"); 
+        } finally { 
+          setIsSaving(false); 
+          setBindingTarget(null); // ★★★ 清除轉圈圈目標 ★★★
+        }
       };
 
       // 儲存
@@ -216,15 +251,26 @@
         </div>
       );
 
+      // --- 身分認領畫面 ---
       if (!currentUser) return (
         <div className="min-h-screen flex items-center justify-center p-6">
           <div className="w-full max-w-md bg-[#142820] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
             <h1 className="text-2xl font-bold text-center mb-6">身分認領</h1>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {profiles.map(p => (
-                <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group">
+                <button 
+                  key={p.name} 
+                  onClick={() => handleBindUser(p.name)} 
+                  disabled={isSaving} // 綁定中禁止點擊
+                  className={`w-full p-4 bg-[#0d1f18] border border-emerald-900/30 rounded-xl text-left flex justify-between items-center group transition-all ${isSaving ? 'opacity-50 cursor-not-allowed' : 'hover:border-emerald-500/50'}`}
+                >
                   <span className="font-bold">{p.name}</span>
-                  <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-emerald-500" />
+                  {/* ★★★ 判斷是否顯示轉圈圈 ★★★ */}
+                  {isSaving && bindingTarget === p.name ? (
+                    <Loader2 className="w-5 h-5 text-emerald-500 animate-spin" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-emerald-500" />
+                  )}
                 </button>
               ))}
             </div>
@@ -258,7 +304,7 @@
                   </div>
                 </div>
 
-                {/* ★★★ 新增：月份 Tabs (使用原始綠色風格) ★★★ */}
+                {/* ★★★ 月份 Tabs (綠色風格) ★★★ */}
                 {availableMonths.length > 0 && (
                   <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar pb-1">
                     {availableMonths.map(m => (

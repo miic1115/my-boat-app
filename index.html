@@ -26,22 +26,6 @@
     /* 隱藏橫向捲軸但保留功能 */
     .no-scrollbar::-webkit-scrollbar { display: none; }
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
-    
-    /* 水波紋動畫 */
-    @keyframes ripple {
-      0% { transform: scale(0.8); opacity: 1; }
-      100% { transform: scale(2.5); opacity: 0; }
-    }
-    .ripple-effect {
-      position: absolute;
-      width: 80px;
-      height: 80px;
-      border-radius: 50%;
-      border: 2px solid #34d399; /* emerald-400 */
-      animation: ripple 2s infinite ease-out;
-    }
-    .ripple-effect:nth-child(2) { animation-delay: 0.6s; }
-    .ripple-effect:nth-child(3) { animation-delay: 1.2s; }
   </style>
 </head>
 <body class="bg-[#151716] text-white font-sans antialiased selection:bg-emerald-500/30">
@@ -312,22 +296,12 @@
 
       // --- 渲染畫面 ---
       if (loading) return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-[#151716] relative overflow-hidden">
-          {/* 水波紋動畫 */}
-          <div className="relative flex items-center justify-center mb-8">
-            <div className="ripple-effect"></div>
-            <div className="ripple-effect"></div>
-            <div className="ripple-effect"></div>
-            <div className="w-20 h-20 bg-emerald-500 rounded-full flex items-center justify-center z-10 shadow-[0_0_20px_rgba(16,185,129,0.5)]">
-              <Ship className="w-10 h-10 text-[#151716]" />
-            </div>
-          </div>
-          
-          <h1 className="text-2xl font-bold text-white mb-4 z-10">歡迎登入派兜出席表</h1>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-[#151716] p-4 text-center">
+          <h1 className="text-2xl font-bold text-white mb-6">歡迎登入派兜出席表</h1>
           
           {/* 隨機標語 */}
-          <div className="h-8 flex items-center justify-center z-10">
-            <p className="text-emerald-400 font-medium text-sm animate-pulse transition-all duration-500 text-center px-6">
+          <div className="h-8 flex items-center justify-center">
+            <p className="text-emerald-400 font-medium text-sm animate-pulse transition-all duration-500">
               {LOADING_MSGS[msgIndex]}
             </p>
           </div>

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>龍舟管理系統</title>
+  <title>派兜管理系統</title>
   
   <!-- 1. 樣式與圖標 -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -28,7 +28,7 @@
     .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-[#0a1a12] text-white font-sans antialiased selection:bg-emerald-500/30">
+<body class="bg-[#151716] text-white font-sans antialiased selection:bg-emerald-500/30">
   <div id="root"></div>
 
   <!-- 4. 應用程式邏輯 -->
@@ -241,7 +241,7 @@
       }, [selectedDate, attendance, profiles]);
 
       // --- 渲染畫面 ---
-      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold">資料載入中...</div>;
+      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold text-center px-4">載入派兜出席表<br/>等待時做波比跳度過會更快</div>;
       
       if (errorMsg) return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">
@@ -254,7 +254,7 @@
       // --- 身分認領畫面 ---
       if (!currentUser) return (
         <div className="min-h-screen flex items-center justify-center p-6">
-          <div className="w-full max-w-md bg-[#222B27] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
+          <div className="w-full max-w-md bg-[#171C1A] border border-emerald-900/50 rounded-2xl p-8 shadow-2xl">
             <h1 className="text-2xl font-bold text-center mb-6">身分認領</h1>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto">
               {profiles.map(p => (
@@ -280,7 +280,7 @@
 
       return (
         <div className="min-h-screen font-sans pb-32">
-          <nav className="sticky top-0 z-40 bg-[#0a1a12]/95 backdrop-blur-md border-b border-emerald-900/30 h-16 flex items-center justify-between px-4">
+          <nav className="sticky top-0 z-40 bg-[#0D1210]/95 backdrop-blur-md border-b border-emerald-900/30 h-16 flex items-center justify-between px-4">
             <div className="flex bg-[#0d1f18] p-1 rounded-xl">
               <button onClick={() => setActiveTab('signup')} className={`px-4 py-2 rounded-lg font-bold text-xs ${activeTab === 'signup' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>我要報名</button>
               <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold text-xs ${activeTab === 'dashboard' ? 'bg-emerald-500 text-[#0a1a12]' : 'text-gray-500'}`}>出席看板</button>
@@ -294,7 +294,7 @@
           <main className="max-w-4xl mx-auto px-4 py-6">
             {activeTab === 'signup' ? (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className="bg-[#222B27] p-4 rounded-2xl border border-emerald-900/30 mb-8">
+                <div className="bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/30 mb-8">
                   <label className="text-[10px] font-bold text-emerald-500 uppercase block mb-2">代理人模式 (切換身份)</label>
                   <div className="relative">
                     <select value={proxyUser.name} onChange={(e) => setProxyUser(profiles.find(p => p.name === e.target.value))} className="w-full bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-3 text-sm font-bold focus:outline-none appearance-none">
@@ -311,7 +311,7 @@
                       <button 
                         key={m} 
                         onClick={() => setSelectedMonth(m)}
-                        className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap border transition-colors ${selectedMonth === m ? 'bg-emerald-500 text-[#0a1a12] border-emerald-500' : 'bg-[#222B27] text-gray-400 border-emerald-900/30 hover:text-emerald-500'}`}
+                        className={`px-4 py-2 rounded-full text-sm font-bold whitespace-nowrap border transition-colors ${selectedMonth === m ? 'bg-emerald-500 text-[#0a1a12] border-emerald-500' : 'bg-[#171C1A] text-gray-400 border-emerald-900/30 hover:text-emerald-500'}`}
                       >
                         {m}月
                       </button>
@@ -325,7 +325,7 @@
                   {filteredDates.map(date => {
                     const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
                     return (
-                      <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#222B27] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98]">
+                      <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#171C1A] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98]">
                         <div className="flex items-center gap-4">
                           <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}><Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} /></div>
                           <div className="font-bold">{date}</div>
@@ -338,16 +338,16 @@
               </div>
             ) : (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className="flex items-center justify-between mb-8 bg-[#222B27] p-4 rounded-2xl border border-emerald-900/30">
+                <div className="flex items-center justify-between mb-8 bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/30">
                   <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
                   <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm">
                     {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
                 <div className="grid grid-cols-3 gap-3 mb-8 text-center">
-                  <div className="bg-[#222B27] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.total}</div></div>
-                  <div className="bg-[#222B27] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.male}</div></div>
-                  <div className="bg-[#222B27] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">女生</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.female}</div></div>
+                  <div className="bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.total}</div></div>
+                  <div className="bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.male}</div></div>
+                  <div className="bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">女生</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.female}</div></div>
                 </div>
                 <div className="space-y-6">
                   {dashboardStats.manifest.Staff.length > 0 && (
@@ -358,7 +358,7 @@
                       <div key={side} className="space-y-3">
                         <div className="text-[10px] font-bold text-gray-500 uppercase">{side === 'Left' ? '左槳' : '右槳'}</div>
                         {dashboardStats.manifest[side].map(p => (
-                          <div key={p.name} className={`p-3 bg-[#222B27] border-${side === 'Left' ? 'l' : 'r'}-4 border-emerald-500 rounded-xl flex justify-between items-center text-sm font-bold shadow-sm`}>
+                          <div key={p.name} className={`p-3 bg-[#171C1A] border-${side === 'Left' ? 'l' : 'r'}-4 border-emerald-500 rounded-xl flex justify-between items-center text-sm font-bold shadow-sm`}>
                             <span>{p.name}</span><span className="text-[10px] opacity-50">{p.gender}</span>
                           </div>
                         ))}

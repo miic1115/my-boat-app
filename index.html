@@ -241,7 +241,7 @@
       }, [selectedDate, attendance, profiles]);
 
       // --- 渲染畫面 ---
-      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold text-center px-4">載入派兜出席表<br/>等待時做波比跳度過會更快</div>;
+      if (loading) return <div className="min-h-screen flex items-center justify-center text-emerald-500 font-bold text-center px-4">載入派兜出席表<br/>請做波比跳度過等待...</div>;
       
       if (errorMsg) return (
         <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center">

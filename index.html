@@ -19,37 +19,29 @@
     }
   </script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  
+
   <script>
     tailwind.config = {
       theme: {
         extend: {
           colors: {
-            app: {
-              bg: '#000000',       // 純黑背景
-              card: '#1C1C1E',     // 深灰卡片 (類似 iOS Dark Mode)
-              accent: '#2DD4BF',   // 藍綠色 (Teal-400)
-              text: '#FFFFFF',     // 白字
-              subtext: '#9CA3AF'   // 灰字
-            }
+            bg: '#000000',
+            card: '#1C1C1E', 
+            accent: '#2DD4BF', // Teal-400
+            text: '#FFFFFF',
+            subtext: '#9CA3AF'
           }
         }
       }
     }
   </script>
-  
+
   <style>
-    /* 隱藏捲軸但保留功能 */
-    .no-scrollbar::-webkit-scrollbar {
-      display: none;
-    }
-    .no-scrollbar {
-      -ms-overflow-style: none;
-      scrollbar-width: none;
-    }
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
   </style>
 </head>
-<body class="bg-app-bg text-app-text font-sans antialiased selection:bg-app-accent/30">
+<body class="bg-bg text-text font-sans antialiased selection:bg-accent/30">
   <div id="root"></div>
 
   <script type="text/babel" data-type="module">
@@ -57,12 +49,12 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Calendar, Ship, ChevronRight, Save, 
-      CheckCircle2, ArrowRightLeft, AlertTriangle, Users, Activity
+      CheckCircle2, ArrowRightLeft, AlertTriangle 
     } from 'lucide-react';
 
-    // --- 設定區 (保持原樣，絕對不改) ---
+    // --- 設定區 (絕對不改) ---
     const API_URL = "https://script.google.com/macros/s/AKfycbzsj2ZpBYk3sqJAEgIhO86FqMI8MPbcw5yXkZ8Znjr8WTwiDRAF55bKLo-WiPuxcTs1/exec";
-    const LIFF_ID = "2009058776-inSwxkl9";
+    const LIFF_ID = "2009058776-fDhQPTf4";
 
     const App = () => {
       const [activeTab, setActiveTab] = useState('signup');
@@ -77,25 +69,26 @@
       const [isSaving, setIsSaving] = useState(false);
       const [toast, setToast] = useState(null);
       
-      // 新增：月份 Tab 狀態
       const [selectedMonth, setSelectedMonth] = useState(null);
 
       // 初始化
       useEffect(() => {
         const init = async () => {
           try {
-            // 初始化 LIFF
+            // LIFF 初始化
             if (LIFF_ID && window.liff) {
-              await window.liff.init({ liffId: LIFF_ID });
+              await window.liff.init({ liffId: LIFF_ID }).catch(e => console.error("LIFF Error", e));
               if (!window.liff.isLoggedIn()) {
                 window.liff.login();
                 return;
               }
             }
             
-            const userId = (LIFF_ID && window.liff && window.liff.isLoggedIn()) 
-              ? (await window.liff.getProfile()).userId 
-              : "MOCK_USER_ID";
+            let userId = "MOCK_USER_ID";
+            if (LIFF_ID && window.liff && window.liff.isLoggedIn()) {
+               const profile = await window.liff.getProfile();
+               userId = profile.userId;
+            }
             
             // 抓取資料
             const res = await fetch(`${API_URL}?action=getInitialData`);
@@ -103,37 +96,49 @@
             
             if (data.error) throw new Error(data.error);
 
-            setProfiles(data.profiles);
-            setPracticeDates(data.dates);
+            // 安全地設定資料
+            const safeDates = Array.isArray(data.dates) ? data.dates : [];
+            setProfiles(data.profiles || []);
+            setPracticeDates(safeDates);
             setAttendance(data.attendanceMap || {});
             
-            if (data.dates.length > 0) {
-              setSelectedDate(data.dates[0]);
+            if (safeDates.length > 0) {
+              setSelectedDate(safeDates[0]);
               
-              // 初始化月份邏輯：預設選取「當前月份」
-              const currentRealMonth = new Date().getMonth() + 1; // 1-12
-              
-              // 檢查資料中有哪些月份
-              const availableMonths = [...new Set(data.dates.map(d => parseInt(d.split('/')[0], 10)))];
-              
-              if (availableMonths.includes(currentRealMonth)) {
-                 setSelectedMonth(currentRealMonth);
-              } else if (availableMonths.length > 0) {
-                 // 如果當前月份沒有資料，預設選第一個有資料的月份
-                 setSelectedMonth(availableMonths[0]);
+              // --- 安全的月份計算邏輯 (避免資料格式錯誤導致崩潰) ---
+              try {
+                // 強制轉字串再切割，避免資料是數字時報錯
+                const uniqueMonths = [...new Set(safeDates.map(d => {
+                  const str = String(d); 
+                  return str.includes('/') ? parseInt(str.split('/')[0], 10) : null;
+                }))].filter(m => m !== null);
+
+                const currentRealMonth = new Date().getMonth() + 1;
+                
+                if (uniqueMonths.includes(currentRealMonth)) {
+                  setSelectedMonth(currentRealMonth);
+                } else if (uniqueMonths.length > 0) {
+                  setSelectedMonth(uniqueMonths[0]);
+                }
+              } catch (e) {
+                console.warn("Month calculation warning:", e);
+                // 如果計算失敗，不影響主流程
               }
             }
 
             // 自動登入
-            const boundUser = data.profiles.find(p => p.lineId === userId);
-            if (boundUser) {
-              setCurrentUser(boundUser);
-              setProxyUser(boundUser);
+            if (data.profiles) {
+              const boundUser = data.profiles.find(p => p.lineId === userId);
+              if (boundUser) {
+                setCurrentUser(boundUser);
+                setProxyUser(boundUser);
+              }
             }
             setLoading(false);
           } catch (err) {
-            console.error(err);
-            setErrorMsg("連線失敗，請確認 GAS 權限設為「任何人」且網址正確。");
+            console.error("Critical Init Error:", err);
+            // 只有真的連線或資料錯誤才顯示錯誤畫面
+            setErrorMsg("無法讀取資料，請確認網路連線或稍後再試。");
             setLoading(false);
           }
         };
@@ -153,7 +158,7 @@
           setCurrentUser(user);
           setProxyUser(user);
           showToast(`歡迎，${name}！已綁定。`);
-        } catch (err) { alert("綁定失敗"); } 
+        } catch (err) { alert("綁定失敗，請重試"); } 
         finally { setIsSaving(false); }
       };
 
@@ -170,7 +175,7 @@
             body: JSON.stringify({ action: 'updateAttendance', name: proxyUser.name, updates })
           });
           showToast('已儲存！');
-        } catch (err) { alert("儲存失敗"); } 
+        } catch (err) { alert("儲存失敗，請檢查網路"); } 
         finally { setIsSaving(false); }
       };
 
@@ -185,21 +190,26 @@
         setTimeout(() => setToast(null), 3000);
       };
 
-      // 計算可用的月份列表
+      // --- 計算月份列表 (安全版) ---
       const availableMonths = useMemo(() => {
         if (!practiceDates.length) return [];
-        // 抓取 / 前面的數字，去重，排序
-        const months = new Set(practiceDates.map(d => {
-            const m = d.split('/')[0];
-            return parseInt(m, 10);
-        }));
+        const months = new Set();
+        practiceDates.forEach(d => {
+            const str = String(d);
+            if(str.includes('/')) {
+                months.add(parseInt(str.split('/')[0], 10));
+            }
+        });
         return Array.from(months).sort((a, b) => a - b);
       }, [practiceDates]);
 
-      // 根據選取的月份過濾顯示的日期
+      // --- 過濾日期 (安全版) ---
       const filteredDates = useMemo(() => {
         if (!selectedMonth) return [];
-        return practiceDates.filter(d => parseInt(d.split('/')[0], 10) === selectedMonth);
+        return practiceDates.filter(d => {
+            const str = String(d);
+            return str.includes('/') && parseInt(str.split('/')[0], 10) === selectedMonth;
+        });
       }, [selectedMonth, practiceDates]);
 
       const dashboardStats = useMemo(() => {
@@ -215,26 +225,25 @@
       }, [selectedDate, attendance, profiles]);
 
       // --- 渲染畫面 ---
-      if (loading) return <div className="min-h-screen flex items-center justify-center bg-app-bg text-app-accent font-bold">資料載入中...</div>;
+      if (loading) return <div className="min-h-screen flex items-center justify-center bg-bg text-accent font-bold">資料載入中...</div>;
       
       if (errorMsg) return (
-        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-app-bg">
+        <div className="min-h-screen flex flex-col items-center justify-center p-6 text-center bg-bg">
           <AlertTriangle className="w-16 h-16 text-yellow-500 mb-4" />
-          <p className="text-gray-400">{errorMsg}</p>
-          <button onClick={() => window.location.reload()} className="mt-6 px-6 py-2 bg-app-accent text-black rounded-full font-bold">重新載入</button>
+          <p className="text-subtext mb-6">{errorMsg}</p>
+          <button onClick={() => window.location.reload()} className="px-6 py-2 bg-accent text-black rounded-lg font-bold">重新載入</button>
         </div>
       );
 
-      // 身分認領頁面
       if (!currentUser) return (
-        <div className="min-h-screen flex items-center justify-center p-6 bg-app-bg">
-          <div className="w-full max-w-md bg-app-card rounded-2xl p-8 shadow-2xl border border-gray-800">
+        <div className="min-h-screen flex items-center justify-center p-6 bg-bg">
+          <div className="w-full max-w-md bg-card border border-gray-800 rounded-2xl p-8 shadow-2xl">
             <h1 className="text-2xl font-bold text-center mb-6 text-white">身分認領</h1>
             <div className="space-y-2 max-h-[60vh] overflow-y-auto no-scrollbar">
               {profiles.map(p => (
-                <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-black/40 hover:bg-black/60 border border-gray-700 rounded-xl text-left flex justify-between items-center group transition-colors">
-                  <span className="font-bold text-gray-200">{p.name}</span>
-                  <ChevronRight className="w-4 h-4 text-gray-600 group-hover:text-app-accent" />
+                <button key={p.name} onClick={() => handleBindUser(p.name)} className="w-full p-4 bg-black/40 border border-gray-700 rounded-xl text-left flex justify-between items-center group hover:border-accent transition-colors">
+                  <span className="font-bold text-white">{p.name}</span>
+                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-accent" />
                 </button>
               ))}
             </div>
@@ -243,116 +252,101 @@
       );
 
       return (
-        <div className="min-h-screen font-sans pb-32 bg-app-bg">
-          {/* 頂部導航 */}
-          <nav className="sticky top-0 z-40 bg-black/80 backdrop-blur-md border-b border-gray-800 h-16 flex items-center justify-between px-4">
-            <div className="flex bg-app-card p-1 rounded-full">
-              <button onClick={() => setActiveTab('signup')} className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all ${activeTab === 'signup' ? 'bg-app-accent text-black shadow-lg shadow-teal-500/20' : 'text-gray-500 hover:text-gray-300'}`}>報名</button>
-              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-1.5 rounded-full font-bold text-xs transition-all ${activeTab === 'dashboard' ? 'bg-app-accent text-black shadow-lg shadow-teal-500/20' : 'text-gray-500 hover:text-gray-300'}`}>出席看板</button>
+        <div className="min-h-screen font-sans pb-32 bg-bg">
+          <nav className="sticky top-0 z-40 bg-bg/90 backdrop-blur-md border-b border-gray-800 h-16 flex items-center justify-between px-4">
+            <div className="flex bg-card p-1 rounded-xl">
+              <button onClick={() => setActiveTab('signup')} className={`px-4 py-2 rounded-lg font-bold text-xs transition-colors ${activeTab === 'signup' ? 'bg-accent text-black' : 'text-gray-500'}`}>我要報名</button>
+              <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2 rounded-lg font-bold text-xs transition-colors ${activeTab === 'dashboard' ? 'bg-accent text-black' : 'text-gray-500'}`}>出席看板</button>
             </div>
-            <div className="text-right flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-app-card flex items-center justify-center border border-gray-700 text-app-accent font-bold text-xs">
-                 {currentUser.name.charAt(0)}
-              </div>
+            <div className="text-right">
+              <div className="text-[10px] text-accent font-bold uppercase">User</div>
+              <div className="text-sm font-bold text-white">{currentUser.name}</div>
             </div>
           </nav>
 
           <main className="max-w-4xl mx-auto px-4 py-6">
             {activeTab === 'signup' ? (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                
-                {/* 代理人切換卡片 */}
-                <div className="bg-app-card p-5 rounded-3xl mb-8 shadow-sm">
-                  <label className="text-[10px] font-bold text-gray-500 uppercase block mb-3 tracking-wider">目前身分</label>
+                <div className="bg-card p-4 rounded-2xl border border-gray-800 mb-6">
+                  <label className="text-[10px] font-bold text-accent uppercase block mb-2">代理人模式 (切換身份)</label>
                   <div className="relative">
-                    <select value={proxyUser.name} onChange={(e) => setProxyUser(profiles.find(p => p.name === e.target.value))} className="w-full bg-black border border-gray-800 rounded-2xl px-4 py-4 text-base font-bold text-white focus:outline-none focus:border-app-accent appearance-none transition-colors">
+                    <select value={proxyUser.name} onChange={(e) => setProxyUser(profiles.find(p => p.name === e.target.value))} className="w-full bg-black border border-gray-700 rounded-xl px-4 py-3 text-sm font-bold text-white focus:outline-none focus:border-accent appearance-none">
                       {profiles.map(p => <option key={p.name} value={p.name}>{p.name}{p.name === currentUser.name ? ' (本人)' : ''}</option>)}
                     </select>
-                    <div className="absolute right-4 top-4 pointer-events-none text-app-accent">
-                        <ArrowRightLeft className="w-5 h-5" />
-                    </div>
+                    <ArrowRightLeft className="absolute right-4 top-3.5 w-4 h-4 text-accent/50 pointer-events-none" />
                   </div>
                 </div>
 
-                {/* 月份 Tabs */}
+                {/* 月份 Tabs 區域 */}
                 {availableMonths.length > 0 && (
-                    <div className="flex gap-2 overflow-x-auto no-scrollbar mb-6 pb-2">
-                        {availableMonths.map(m => (
-                            <button 
-                                key={m} 
-                                onClick={() => setSelectedMonth(m)}
-                                className={`px-6 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all border ${selectedMonth === m ? 'bg-app-accent text-black border-app-accent' : 'bg-app-card text-gray-400 border-transparent'}`}
-                            >
-                                {m} 月
-                            </button>
-                        ))}
-                    </div>
+                  <div className="flex gap-2 mb-6 overflow-x-auto no-scrollbar pb-1">
+                    {availableMonths.map(month => (
+                      <button
+                        key={month}
+                        onClick={() => setSelectedMonth(month)}
+                        className={`px-5 py-2 rounded-full text-sm font-bold whitespace-nowrap transition-all border ${selectedMonth === month ? 'bg-accent text-black border-accent' : 'bg-card text-gray-500 border-transparent hover:text-white'}`}
+                      >
+                        {month} 月
+                      </button>
+                    ))}
+                  </div>
                 )}
 
-                {/* 日期列表 */}
                 <div className="space-y-3">
-                  {filteredDates.length === 0 && <div className="text-center text-gray-500 py-10">本月無訓練安排</div>}
+                  {filteredDates.length === 0 && availableMonths.length > 0 && (
+                    <div className="text-center text-gray-500 py-10">本月無訓練行程</div>
+                  )}
+                  {filteredDates.length === 0 && availableMonths.length === 0 && (
+                     <div className="text-center text-gray-500 py-10">尚無任何訓練資料</div>
+                  )}
+
                   {filteredDates.map(date => {
                     const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
+                    const dateStr = String(date);
+                    const day = dateStr.includes('/') ? dateStr.split('/')[1] : dateStr;
+                    const month = dateStr.includes('/') ? dateStr.split('/')[0] : '';
+
                     return (
-                      <div key={date} onClick={() => toggleAttendance(date)} className={`relative overflow-hidden rounded-2xl p-4 flex items-center justify-between cursor-pointer transition-all active:scale-[0.98] border ${isAttending ? 'bg-app-card border-app-accent/50 shadow-[0_0_15px_-5px_rgba(45,212,191,0.3)]' : 'bg-app-card border-transparent opacity-80'}`}>
-                        <div className="flex items-center gap-4 z-10">
-                          <div className={`w-12 h-12 rounded-full flex items-center justify-center transition-colors ${isAttending ? 'bg-app-accent text-black' : 'bg-black/50 text-gray-600'}`}>
-                              <span className="font-black text-sm">{date.split('/')[1]}</span>
+                      <div key={date} onClick={() => toggleAttendance(date)} className={`bg-card border rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98] transition-all ${isAttending ? 'border-accent/50 shadow-[0_0_10px_-3px_rgba(45,212,191,0.2)]' : 'border-gray-800'}`}>
+                        <div className="flex items-center gap-4">
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center border transition-colors ${isAttending ? 'bg-accent text-black border-accent' : 'bg-black/50 border-gray-700'}`}>
+                            <span className={`text-lg font-black ${isAttending ? 'text-black' : 'text-gray-500'}`}>{day}</span>
                           </div>
                           <div>
-                              <div className="text-xs text-gray-500 font-bold mb-0.5">{date.split('/')[0]}月</div>
-                              <div className={`font-bold text-lg ${isAttending ? 'text-white' : 'text-gray-400'}`}>{date}</div>
+                             {month && <div className="text-[10px] text-gray-500 font-bold uppercase">{month}月</div>}
+                             <div className={`font-bold text-lg ${isAttending ? 'text-white' : 'text-gray-400'}`}>{date}</div>
                           </div>
                         </div>
-                        
-                        {/* 開關 UI */}
-                        <div className={`relative w-12 h-7 rounded-full transition-colors z-10 ${isAttending ? 'bg-app-accent' : 'bg-gray-700'}`}>
-                            <div className={`absolute top-1 left-1 w-5 h-5 bg-white rounded-full transition-transform shadow-sm ${isAttending ? 'translate-x-5' : 'translate-x-0'}`} />
-                        </div>
+                        <div className={`relative w-14 h-8 rounded-full transition-colors ${isAttending ? 'bg-accent' : 'bg-gray-700'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} /></div>
                       </div>
                     );
                   })}
                 </div>
               </div>
             ) : (
-              // --- Dashboard Tab ---
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className="flex items-center justify-between mb-8 bg-app-card p-4 rounded-3xl">
-                  <h2 className="font-bold text-gray-400 text-sm pl-2">選擇日期</h2>
-                  <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-black text-app-accent border border-gray-800 rounded-xl px-4 py-2 font-bold focus:outline-none text-sm appearance-none text-center min-w-[120px]">
+                <div className="flex items-center justify-between mb-8 bg-card p-4 rounded-2xl border border-gray-800">
+                  <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
+                  <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-black border border-gray-700 rounded-xl px-4 py-2 font-bold text-accent focus:outline-none text-sm">
                     {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
                   </select>
                 </div>
-
                 <div className="grid grid-cols-3 gap-3 mb-8 text-center">
-                  <div className="bg-app-card p-4 rounded-3xl"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-3xl font-black text-app-accent">{dashboardStats.total}</div></div>
-                  <div className="bg-app-card p-4 rounded-3xl"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-3xl font-black text-blue-400">{dashboardStats.male}</div></div>
-                  <div className="bg-app-card p-4 rounded-3xl"><div className="text-[10px] text-gray-500 font-bold mb-1">女生</div><div className="text-3xl font-black text-pink-400">{dashboardStats.female}</div></div>
+                  <div className="bg-card p-4 rounded-2xl border border-gray-800"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-2xl font-black text-accent">{dashboardStats.total}</div></div>
+                  <div className="bg-card p-4 rounded-2xl border border-gray-800"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-2xl font-black text-blue-400">{dashboardStats.male}</div></div>
+                  <div className="bg-card p-4 rounded-2xl border border-gray-800"><div className="text-[10px] text-gray-500 font-bold mb-1">女生</div><div className="text-2xl font-black text-pink-400">{dashboardStats.female}</div></div>
                 </div>
-
                 <div className="space-y-6">
                   {dashboardStats.manifest.Staff.length > 0 && (
-                    <div className="bg-gray-900/50 border border-gray-800 rounded-3xl p-5">
-                        <div className="flex items-center gap-2 mb-3 text-app-accent text-xs font-bold uppercase tracking-widest"><Ship className="w-4 h-4" /> 關鍵職位</div>
-                        <div className="flex flex-wrap gap-2">
-                            {dashboardStats.manifest.Staff.map(p => (
-                                <span key={p.name} className="px-4 py-2 bg-app-card border border-gray-700 rounded-xl text-sm font-bold text-white flex items-center gap-2">
-                                    {p.name} <span className="text-[10px] px-1.5 py-0.5 bg-app-accent/20 text-app-accent rounded font-bold">{p.position}</span>
-                                </span>
-                            ))}
-                        </div>
-                    </div>
+                    <div className="bg-accent/5 border border-accent/20 rounded-2xl p-5"><div className="flex items-center gap-2 mb-2 text-accent text-[10px] font-bold uppercase"><Ship className="w-4 h-4" /> 舵手與鼓手</div><div className="flex flex-wrap gap-2">{dashboardStats.manifest.Staff.map(p => <span key={p.name} className="px-3 py-1 bg-black border border-accent/30 rounded-lg text-sm font-bold text-white">{p.name} <span className="text-[10px] opacity-50">{p.position}</span></span>)}</div></div>
                   )}
-                  
                   <div className="grid grid-cols-2 gap-4">
                     {['Left', 'Right'].map(side => (
                       <div key={side} className="space-y-3">
-                        <div className="text-[10px] font-bold text-gray-500 uppercase tracking-widest text-center mb-2">{side === 'Left' ? '左槳' : '右槳'}</div>
+                        <div className="text-[10px] font-bold text-gray-500 uppercase">{side === 'Left' ? '左槳' : '右槳'}</div>
                         {dashboardStats.manifest[side].map(p => (
-                          <div key={p.name} className={`p-3 bg-app-card border-l-2 ${side === 'Left' ? 'border-app-accent' : 'border-blue-500'} rounded-r-xl flex justify-between items-center text-sm font-bold shadow-sm mb-2`}>
-                            <span className="text-gray-200">{p.name}</span>
-                            <span className="text-[10px] text-gray-500">{p.gender}</span>
+                          <div key={p.name} className={`p-3 bg-card border-l-4 ${side === 'Left' ? 'border-accent' : 'border-blue-500'} rounded-xl flex justify-between items-center text-sm font-bold shadow-sm`}>
+                            <span className="text-white">{p.name}</span><span className="text-[10px] text-gray-500">{p.gender}</span>
                           </div>
                         ))}
                       </div>
@@ -363,21 +357,15 @@
             )}
           </main>
 
-          {/* 懸浮儲存按鈕 */}
           {activeTab === 'signup' && (
-            <div className="fixed bottom-8 left-0 right-0 px-6 z-50 flex justify-center">
-              <button onClick={handleUpdate} disabled={isSaving} className="w-full max-w-sm flex items-center justify-center gap-2 h-14 bg-app-accent hover:bg-teal-300 text-black rounded-full font-black shadow-[0_8px_30px_rgb(45,212,191,0.3)] disabled:opacity-50 transition-all active:scale-95 text-lg">
+            <div className="fixed bottom-8 right-6 z-50">
+              <button onClick={handleUpdate} disabled={isSaving} className="flex items-center gap-3 px-8 py-4 bg-accent hover:bg-white text-black rounded-2xl font-black shadow-[0_10px_20px_-5px_rgba(45,212,191,0.3)] disabled:opacity-50 transition-all active:scale-95">
                 {isSaving ? <div className="w-5 h-5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
                 儲存變更
               </button>
             </div>
           )}
-          
-          {toast && (
-            <div className="fixed top-10 left-1/2 -translate-x-1/2 bg-app-card border border-app-accent text-white px-6 py-3 rounded-full font-bold shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-4 z-[100]">
-                <CheckCircle2 className="w-5 h-5 text-app-accent" />{toast}
-            </div>
-          )}
+          {toast && <div className="fixed top-24 left-1/2 -translate-x-1/2 bg-card border border-accent text-white px-6 py-3 rounded-full font-bold shadow-2xl flex items-center gap-2 animate-in slide-in-from-top-4 z-[100]"><CheckCircle2 className="w-4 h-4 text-accent" />{toast}</div>}
         </div>
       );
     };

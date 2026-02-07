@@ -37,7 +37,7 @@
     import { createRoot } from 'react-dom/client';
     import { 
       Calendar, Ship, ChevronRight, Save, 
-      CheckCircle2, UserPlus, ArrowRightLeft, AlertTriangle, LayoutDashboard, Users, Loader2, Copy
+      CheckCircle2, ArrowRightLeft, AlertTriangle, Loader2, Copy, Lock
     } from 'lucide-react';
 
     // --- 設定區 (完全不更動) ---
@@ -57,7 +57,11 @@
       const [activeTab, setActiveTab] = useState('signup');
       const [profiles, setProfiles] = useState([]);
       const [practiceDates, setPracticeDates] = useState([]);
+      
+      // 狀態：當前出席狀況 vs 初始載入狀況 (用於比對變更)
       const [attendance, setAttendance] = useState({});
+      const [initialAttendance, setInitialAttendance] = useState({});
+
       const [currentUser, setCurrentUser] = useState(null);
       const [proxyUser, setProxyUser] = useState(null);
       const [selectedDate, setSelectedDate] = useState('');
@@ -110,7 +114,11 @@
 
             setProfiles(data.profiles);
             setPracticeDates(data.dates);
-            setAttendance(data.attendanceMap || {});
+            
+            // 設定初始與當前出席資料
+            const attMap = data.attendanceMap || {};
+            setAttendance(attMap);
+            setInitialAttendance(JSON.parse(JSON.stringify(attMap))); // 深拷貝一份作為比對基準
             
             if (data.dates.length > 0) {
               // 智慧預設：選取離今天最近的日期 (看板用)
@@ -197,6 +205,42 @@
         }
       };
 
+      // 判斷日期是否已鎖定 (今天及以前不可編輯)
+      const isDateLocked = (dateStr) => {
+        try {
+          const today = new Date();
+          today.setHours(0, 0, 0, 0); // 設定為當天 00:00:00
+
+          const cleanDate = dateStr.split('(')[0];
+          const [m, d] = cleanDate.split('/').map(n => parseInt(n, 10));
+          
+          const year = today.getFullYear();
+          const targetDate = new Date(year, m - 1, d);
+          
+          // 簡單的跨年處理：如果現在是12月，目標是1月，則視為明年
+          if (today.getMonth() === 11 && m === 1) {
+             targetDate.setFullYear(year + 1);
+          }
+          
+          // 規則：targetDate <= today (今天或之前) 就鎖定
+          return targetDate <= today;
+        } catch (e) {
+          return false;
+        }
+      };
+
+      // 檢查是否有未儲存的變更
+      const hasUnsavedChanges = useMemo(() => {
+        if (!proxyUser) return false;
+        // 檢查該使用者的所有日期，看是否有變更
+        return practiceDates.some(date => {
+           const key = `${proxyUser.name}_${date}`;
+           const current = attendance[key] || '不參加';
+           const initial = initialAttendance[key] || '不參加';
+           return current !== initial;
+        });
+      }, [attendance, initialAttendance, proxyUser, practiceDates]);
+
       // 儲存
       const handleUpdate = async () => {
         setIsSaving(true);
@@ -209,6 +253,8 @@
             method: 'POST',
             body: JSON.stringify({ action: 'updateAttendance', name: proxyUser.name, updates })
           });
+          // 儲存成功後，更新初始狀態
+          setInitialAttendance({...attendance});
           showToast('已儲存！');
         } catch (err) { alert("儲存失敗"); } 
         finally { setIsSaving(false); }
@@ -254,6 +300,9 @@
       };
 
       const toggleAttendance = (date) => {
+        // 檢查日期是否鎖定，如果鎖定則不執行
+        if (isDateLocked(date)) return;
+
         const key = `${proxyUser.name}_${date}`;
         const currentVal = attendance[key];
         setAttendance(prev => ({ ...prev, [key]: currentVal === '參加' ? '不參加' : '參加' }));
@@ -295,13 +344,26 @@
       }, [selectedDate, attendance, profiles]);
 
       // --- 渲染畫面 ---
+      
+      // 1. Loading 畫面
       if (loading) return (
-        <div className="min-h-screen flex flex-col items-center justify-center bg-[#151716] p-4 text-center">
-          <h1 className="text-2xl font-bold text-white mb-6">歡迎登入派兜出席表</h1>
-          
-          {/* 隨機標語 */}
-          <div className="h-8 flex items-center justify-center">
-            <p className="text-emerald-400 font-medium text-sm animate-pulse transition-all duration-500">
+        <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#151716] relative overflow-hidden">
+          <div className="flex-1 flex flex-col items-center justify-center w-full px-8 space-y-10 -mt-16">
+            <div className="w-full max-w-[320px]">
+               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 128" className="w-full h-auto drop-shadow-[0_0_8px_rgba(1,177,165,0.4)]">
+                  <g fill="#01b1a5">
+                    <path d="M125.5 68.9q3.6-.1 7.2.2c9.6 1.4 11 9.6 9.7 17.8l-2.2 13c-1.4 8.8-1.8 18.7-9.7 24.4a17 17 0 0 1-6 2.5c-2.5.4-6 .3-8.5.3h-11.4l1.5-8.5 2.7-16.4 5.7-33.3zm4.4 11c-1.8-1.1-3.2-1-5.3-.9l-4.6 26.6c-.6 3.5-1.2 7.6-1.9 11 2.3.1 3.7.3 5.7-.7 2.5-2.1 2.8-6 3.4-9.2l2-11.5q1-5.4 1.7-10.9.4-2.4-1-4.4M266.3 69a16 16 0 0 1 11.1 3c2.7 2.2 3.6 5.1 4 8.4a26 26 0 0 1-.1 5c-.5 4-1.5 8.5-2.2 12.6-2.2 13-2.6 27.6-19.3 28.9h-.2c-3.6.3-8.4-.5-11.2-3-5.8-5-4-13.3-2.8-20l1.6-9 1.4-8.3c1.7-10.3 7-16.8 17.7-17.6m-1 10.2c-1.5.5-3 1.3-3.6 2.9q-1.2 3.2-1.6 6.7-2 11-3.7 22.3c-.5 3.3.4 5.8 4.3 5.3 3-1 4-3.2 4.5-6.2q2.2-12.6 4.3-25.1c.5-3.4-.2-6.1-4.1-6M234 .1c10.5-1 16.6 4.4 15.4 15.1-1 8.3-2.7 16.6-3.8 24.8-1.3 10.2-5 17-15.7 18.5-7.5.4-14-1.6-15.3-10-.6-3.6.2-7.3.8-11l1.7-10.4C219 15.2 219 2.2 234 0m.6 10.1c-2.9.8-4 2.6-4.5 5.5-.8 4.8-1.6 9-2.3 13.9-.7 5.1-2.4 11.5-1.8 16.6.2 1.6 2.3 2 3.7 2q2.2-.4 3.4-2.5c1-2 4.7-25.9 5-29.6.1-1.1.3-2.7 0-3.8a3 3 0 0 0-1.7-1.8 4 4 0 0 0-1.8-.3M384.1 0c3.7-.2 7.8.2 10.7 2.6 5.8 4.8 3.9 13 2.9 19.3L396 32c-1.8 11.7-2.2 24.9-17.4 26.3-7.3.6-14-2.7-14.6-10.5-.2-6.1 1.3-12.7 2.3-18.7C368.4 16.6 368 1.8 384 0m-.4 10.3c-2.8.8-3.9 2.9-4.3 5.6l-4.2 27c-.5 3.5.3 5.5 4.2 5.3a5 5 0 0 0 3-2.5c1.2-2.6 5-26.5 5.2-30.2 0-1 .1-2.4-.2-3.3q-.5-1.2-1.6-1.7-1-.4-2.1-.2M300.5 69.8c2.7 0 5.3-.2 8 .3 10.3 2 9.6 11.8 7.9 19.8-1.1 5-3 9-7.4 12l.4 3.3q1.4 10.5 2.6 20.9H300l-1-9.3-1-11.9h-3.4l-.6 3.2c-.8 5.9-2.4 12-3 18h-12l3-17.7 6.9-38.6zm-1.7 9.8c-.8 5-2 10.5-2.6 15.4 2 0 4 .2 5.6-.8q1.9-1.6 2.5-4.1c.7-3.1 2.7-10.4-2.6-10.4zM19 1c5.9-.2 13.2-.4 18.8.2 9.4.9 9.9 10.8 8.4 18-1.2 6-2 10.3-7.4 14l3.3 24.4H30.4c-.4-2.6-.7-6.8-1-9.5l-1.3-12h-3.3l-3.3 21.5H10c.2-2.1.8-5.2 1.1-7.4l2-12.5zm9.9 9.9c-.4.6-2.2 13.3-2.5 15.3 2 0 3.8.3 5.6-.7 2.6-2.2 3-6.2 3.3-9.5.5-5.3-2.3-5.2-6.4-5.1M349 1q3.5-.2 6.7.1c9.8 1.3 9.9 10.4 8.5 18-1 5.9-2 10.3-7 14 0 2.3.7 6.5 1 9l2 15.4h-11.5l-1-10.1c-.5-3.4-.9-8-1.2-11.4h-3.3c-.8 6.9-2.1 14.6-3.2 21.5h-11l1-6.5 1.7-11.2 6-38.9zm3.2 10.3c-1.8-.6-3.2-.4-5-.4q-.8 4.4-1.5 9c-.2 1.7-.8 4.6-.9 6.2 2.2 0 4 .4 5.8-.9 2-2 2.3-4.9 2.7-7.5.3-2.2.6-4.6-1-6.4M49.7 68.9h15.1c0 19.3.7 38.9 1 58.2H53.6l.2-10h-8.9L42 127H30.1c2-6.4 4.6-13.8 6.8-20.2zm40 0c5.3 0 11.3-.4 15 4.4 3.6 5 2.4 12 1.2 17.8-1.7 8.7-2.2 18.3-5.5 26.5-1.1 2.7-3.4 5-5.6 6.7-5.5 3.2-8.8 2.8-14.9 2.8h-11c.6-5.6 2.2-13.5 3.2-19.2l6.7-39zM94.3 80c-1-1.3-4-1-5.5-1Q87.2 89 85.4 99l-3 17.7c2 0 3.7.2 5.6-.8 2.7-2.2 3-7 3.6-10.3l1.9-11.1.9-5.2c.4-2.6 1.6-6.8 0-9.2m-39.5 3.3a574 574 0 0 0-6.5 23.4H54l.6-15.3c0-1.6.4-6.8.2-8.1M298.5 1h34.7c-.7 3.3-1.2 7.3-1.7 10.7h-23.9L306 23.4c7.2.2 14.9 0 22.1 0l-1.5 10.4c-7.2.2-15 0-22.2 0l-.7 4.6-1.4 8.5h24.3l-1.6 10.6h-35.3c1-4.5 1.5-9.9 2.3-14.5 2.3-14 4.1-28.1 6.6-42M20.1 68.9c5 0 11.8-.6 15.7 3.2 4 4.1 3 11.2 2 16.3-.9 5-1.9 10.9-5.6 14.7-4.8 5-10.7 4.6-17 4.6l-.9 5.4c-.7 4.2-1.8 9.8-2.2 14H0L2.7 112l7.4-43zm6.4 12c-.6-2.4-4.6-2-6.4-1.9-.9 5.8-2.5 13-3 18.4 2 0 3.9.3 5.8-.7 1.7-1.5 2.3-3.9 2.6-6 .6-3.1 1.7-6.6 1-9.7M114.3.9h33.2q-1 5.4-1.7 10.6c-7.2.2-14.8 0-22 0-.7 3-1.4 8.7-2 12h20.3l-1.6 10.4h-20.3c-.5 2-.8 5-1.2 7l-.8 6h22.7l-1.6 10.7h-34zM92.9.1c5-.3 10.3.2 13.3 4.7 2.7 4.3 1.8 9.6.9 14.2q-5.4.1-11 .4c.5-2.2 2.3-9.3-1.9-9.4-3.2 0-4.8 3.9-4.6 6.7.3 3.3 2.6 5 5 7 4.6 3.6 9.5 7.2 9.6 13.6.2 10.9-4.2 20.6-16.2 21.2-4.5.1-9.3-.4-12.2-4.4-3.3-4.8-2-10.5-1-15.8q5.3-.1 10.9-.3-.7 3.3-.9 6.8c0 4.3 4.2 4.5 6.5 1.6 1.3-1.6 1.7-5.8.7-7.7-2.7-4.8-8.5-7-11.5-11.6-2.4-3.5-2.6-6.4-2.2-10.5C79.1 7.7 83.7 1.3 93 .1M180 68.9H205c-.2 2.5-1.3 8-1.8 10.8H190c-.7 3.6-1.5 8.4-2 12.1h11.4c-.4 3.4-1.2 7.2-1.8 10.6H186c-.6 4.3-1.6 9.4-2.3 13.8h14q-1 5.4-1.8 10.9h-25.9c.6-4.8 1.9-11.1 2.7-16l4.5-25.7zM414.4 69.8h25.2l-1.8 10.5c-4.1.2-9.2 0-13.4.1-.5 3.5-1.3 7.7-2 11.3H434L432 102h-11.5l-2.3 13.2h13.9c-.7 3.4-1.2 7.3-1.8 10.8h-25.9q1.4-9 3.2-18.1zM53.5.9h24l-1.7 10.7H63L61.2 23h11.1l-1.6 10.5H59.5l-2 13.2h13.2L69 57.6H44.5zM268.4 1h26c-.4 1.7-1 8.2-1.7 9.3-6.3 12.3-13.5 24.3-19.9 36.5 4.4.2 10.3 0 14.7 0L286 57.6q-13.4-.2-26.9 0c.3-1.6 1.2-8.6 1.7-9.7q9.7-18.1 19.9-36.1h-13.8c.3-3.4 1-7.4 1.6-10.8M223.2 69.8h25.5L247 80.3c-4.4.2-9.4 0-13.8.1l-2 11.8h11.7c-.4 3-1.2 7.5-1.8 10.5h-11.8l-.2 1.8-2.3 12.9-1.5 8.7h-12c1-6.7 2.4-13.8 3.6-20.5q3-18 6.4-35.8M384.9 69.8h25.6l-1.8 10.6H395c-.7 3.6-1.5 8.1-2 11.8h11.7c-.4 3.1-1.2 7.4-1.9 10.5H391l-.3 1.9-3.8 21.5h-12c1.6-7.7 3-16.4 4.3-24.2zM150.3 68.9H162c-2.9 15.6-5.3 31.6-8.1 47.3h13.9q-.9 5.4-1.8 10.9h-25.8c2.5-12.8 4.3-26 6.6-38.8q1.9-9.7 3.3-19.4M191.2.9h28.3c-.7 2.9-1.3 7.6-1.7 10.6h-8.6c-1.8 13-4.1 25.8-6 38.6l-1.2 7.5h-11.3l7.3-46h-8.5zM337.8 69.8h12c-3 15-5 30.6-8 45.4h14q-1 5.4-2 10.8c-1.4.2-6.6 0-8.2 0H328c1-6.7 2.4-13.8 3.6-20.5l3.9-22.3q1.3-6.7 2.3-13.4M149.7.9h28c-.1 2.8-1 7.8-1.6 10.7h-8.4l-6.1 38.8-1 7.2h-11.4l7.3-46H148c.6-3 1.3-7.6 1.7-10.7M367.5 69.8h11.8l-1 6.7-2.3 12.8c-2 12.1-4.2 24.7-6.4 36.8h-12l1.4-7.9L361 106zM436.4 113h11.5c-.6 4.2-1.5 8.8-2.2 13h-11.5c.8-3.8 1.5-9.1 2.2-13M397.3 44.8H408l-2 12.7h-11z"/></g>
+               </svg>
+            </div>
+            <div className="w-[120px] md:w-[140px]">
+               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 168 24" className="w-full h-auto">
+                  <g fill="#c8c8c8">
+                    <path d="M145.8 0q1.6 0 3.3.3c2.5.5 3.7 2.5 3 5.1-1.2 4.3-2 8.7-3.3 13q-1.2 4-5.2 4.9-3.3.7-6.7 0-3-.9-2.5-4.2.9-4.2 2-8.2.4-2.4 1.2-5 1-3.4 3.9-5.1 1.4-.8 2.9-.8zm-4.2 19q1 .1 1.9-.6.7-1 1-2l1.6-7L147 6q.2-.8-.5-1c-1.9-.6-3.6-.3-4 2l-.1.4c-1 3.2-1.5 6.4-2.5 9.6q-.7 2.4 1.7 2.2M29.6 23.3l1-4 4.1-18c.2-1 .2-1 1.2-1l8.8.1c1.6.1 3.1 1.8 3.2 3.5q0 1.8-.6 3.4l-2.2 9.8q-.6 2.4-2 4.3a6 6 0 0 1-4.3 2h-9.2m5.8-4.3q1.3.2 2.6 0 1.8 0 2.3-2l.5-2 2-8.6q.5-1.5-1-1.7h-2.4q-.6-.2-.7.5l-2.2 9.6zM56 .3c1.5.1 3.3-.1 5 .2 2.3.4 3.6 2.2 3 4.8L60.9 18a7 7 0 0 1-7 5.4h-7.5c-.7 0-.7 0-.6-.8q2.6-10.1 5-20.4.2-.8-.1-1.4-.2-.5.3-.5zm-3 18.8h.8q2 0 2.6-2l.3-1.4 2.2-9.3q.4-1.6-1.2-1.7l-2.2-.1q-.4 0-.5.3l-.2.7-2.8 12c0 .5-.5 1-.3 1.3q.5.3 1.4.2M26.1.3h3q.4-.1.4.4L29 12.4 28.5 23q.1.4-.4.4h-3.8q-.6.1-.4-.4l.1-3.3q.1-.4-.4-.4h-3.8q-.3 0-.5.3l-1.6 3.5q-.1.3-.6.3H13q-.7 0-.3-.5l2.3-5.1 7-15.6q.3-1 .8-1.7.7-.3 1.8-.1zM25 5.7q-2 4.6-4 8.8 0 .4.3.3h2.6q.7 0 .6-.7l.5-7.2q.1-.6 0-1.2M4 .3h9.4q1.3 0 2.5.2 2.5.5 2.2 3.8Q17.8 6.7 17 9l-1 3.6q-1.4 3.5-5 3.6H7.1q-.5 0-.6.5l-1 6q0 .6-.6.6h-4q-.5 0-.4-.5L5 3.2c0-.4.3-.8.1-1.2q-.4-.8-1-1.5-.2 0-.2-.2M9.1 12h1q1.2 0 1.5-1.3l1.1-4.5q.4-1.3-1-1.4H10q-.6 0-.7.5l-1.6 6.4q0 .4.3.3zM97.9 23.4h-6.3q-.7.2-.4-.6.7-3.2 2.8-5.8 4.2-5.4 8-11.1l.4-.5q.3-.5-.2-.5h-4.8c-1.6 0-1.6 0-1-1.5L97 .6q.1-.5.5-.5h12.7q.5 0 .3.4l-.2 1.1a6 6 0 0 1-1 2.4L99.1 18.2q-.2 0-.2.3.1.2.4.1h6q1-.2.5.7l-1.1 3.8q-.2.4-.6.3zM112.8 23.4h-5.5q-.6 0-.4-.6l2.6-9.5 3-12c.3-1.1.3-1.1 1.3-1.1h10.6q.4 0 .3.4l-1.1 4q0 .4-.6.3h-5.7q-.6 0-.7.6l-1 3.6q-.1.6.5.5l4.5.1q.5-.1.3.5l-.8 3.6q-.2.4-.5.4h-4.7q-.5 0-.6.5l-1.1 3.5q-.2.7.4.6l5.7.1q.7 0 .4.6l-.9 3.5q0 .5-.6.5zM154.2 23.4h-4.3q-.5 0-.3-.5l.9-3.7q0-.5.6-.5h6q1 .2 1.7-.7 1.2-1.8-.4-3.2l-3.8-2.7q-2-1.6-1.5-4 .4-2.3 1.3-4.4Q156.3.3 160 0h7.7q.6 0 .3.5-.5 1.8-.9 3.5 0 .7-.8.7h-5.6c-1.4 0-2.3 1.3-2.2 2.8q0 .6.6 1 1 .9 2.3 1.4l2 1.3q2.1 1.5 1.7 4.2-.4 3-2.2 5.5c-1.2 1.8-3 2.3-5 2.4zM87.7 9.7l-1 4q0 .5-.4.3H82q-.7 0-.9.7l-.9 3.6q-.2.5.4.5h6.2l-1 4.3q0 .3-.3.2H75.3l-1 .1q-.4 0-.3-.3.8-2.7 1.4-5.5l4-15.8q0-.8.4-1.4.5-.2 1.3 0h9.7q.5-.1.3.4l-1 3.6q0 .5-.6.5H84q-.5 0-.6.5l-1 3.8q-.1.5.4.4zM126.2 23.4h-4.7q-1 .2-.5-.6 1.1-4 2.1-8.3c1.1-4.6 2.6-9.2 3.5-14q0-.4.5-.4h4.5q.6 0 .3.5-2.3 8.8-4.5 17.5-.2.6.4.6h4.5q.7 0 .4.6l-1 3.8q-.2.4-.6.4zM67.2 23.3h-5q-.6.1-.4-.5L67.3.7q0-.4.4-.4H72q.5 0 .3.5L68 18.3q-.2.6.3.5h5q.5-.1.3.5l-.8 3.6q0 .5-.5.5z"/></g>
+               </svg>
+            </div>
+          </div>
+          <div className="flex-none pb-12 w-full text-center">
+            <p className="text-[#2d5c4d] text-sm font-medium animate-pulse transition-all duration-500 tracking-wider">
               {LOADING_MSGS[msgIndex]}
             </p>
           </div>
@@ -387,10 +449,18 @@
                   {filteredDates.length === 0 && <div className="text-center text-gray-500 py-4">本月無行程</div>}
                   {filteredDates.map(date => {
                     const isAttending = attendance[`${proxyUser.name}_${date}`] === '參加';
+                    const locked = isDateLocked(date);
+
                     return (
-                      <div key={date} onClick={() => toggleAttendance(date)} className="bg-[#171C1A] border border-emerald-900/20 rounded-2xl p-4 flex items-center justify-between cursor-pointer active:scale-[0.98]">
+                      <div 
+                        key={date} 
+                        onClick={() => toggleAttendance(date)} 
+                        className={`bg-[#171C1A] border rounded-2xl p-4 flex items-center justify-between transition-all ${locked ? 'border-gray-800 opacity-40 grayscale pointer-events-none' : 'border-emerald-900/20 cursor-pointer active:scale-[0.98]'}`}
+                      >
                         <div className="flex items-center gap-4">
-                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}><Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} /></div>
+                          <div className={`w-12 h-12 rounded-xl flex items-center justify-center border ${isAttending ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-gray-800/30 border-gray-700/30'}`}>
+                            {locked ? <Lock className="w-5 h-5 text-gray-600" /> : <Calendar className={`w-5 h-5 ${isAttending ? 'text-emerald-500' : 'text-gray-600'}`} />}
+                          </div>
                           <div className="font-bold">{date}</div>
                         </div>
                         <div className={`relative w-14 h-8 rounded-full transition-colors ${isAttending ? 'bg-emerald-500' : 'bg-gray-700'}`}><div className={`absolute top-1 left-1 w-6 h-6 bg-white rounded-full transition-transform ${isAttending ? 'translate-x-6' : 'translate-x-0'}`} /></div>
@@ -401,12 +471,16 @@
               </div>
             ) : (
               <div className="animate-in fade-in slide-in-from-bottom-3 duration-500">
-                <div className="flex items-center justify-between mb-8 bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/30">
-                  <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
-                  <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm">
-                    {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
-                  </select>
+                {/* 日期選擇區塊：改為 Sticky，並加上 z-index 確保蓋在內容上 */}
+                <div className="sticky top-16 z-30 bg-[#151716]/95 backdrop-blur shadow-sm -mx-4 px-4 py-2 mb-6 border-b border-emerald-900/30">
+                  <div className="flex items-center justify-between bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/30">
+                    <h2 className="font-bold text-gray-400 text-sm">選擇日期</h2>
+                    <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)} className="bg-[#0d1f18] border border-emerald-900/50 rounded-xl px-4 py-2 font-bold text-emerald-400 focus:outline-none text-sm">
+                      {practiceDates.map(d => <option key={d} value={d}>{d}</option>)}
+                    </select>
+                  </div>
                 </div>
+
                 <div className="grid grid-cols-3 gap-3 mb-8 text-center">
                   <div className="bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">總出席</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.total}</div></div>
                   <div className="bg-[#171C1A] p-4 rounded-2xl border border-emerald-900/20"><div className="text-[10px] text-gray-500 font-bold mb-1">男生</div><div className="text-2xl font-black text-emerald-400">{dashboardStats.male}</div></div>
@@ -421,7 +495,7 @@
                       <div key={side} className="space-y-3">
                         <div className="text-[10px] font-bold text-gray-500 uppercase">{side === 'Left' ? '左槳' : '右槳'}</div>
                         {dashboardStats.manifest[side].map(p => (
-                          <div key={p.name} className={`p-3 bg-[#171C1A] border-${side === 'Left' ? 'l' : 'r'}-4 border-emerald-500 rounded-xl flex justify-between items-center text-sm font-bold shadow-sm`}>
+                          <div key={p.name} className="p-3 bg-[#171C1A] rounded-xl flex justify-between items-center text-sm font-bold shadow-sm border border-emerald-900/20">
                             <span>{p.name}</span><span className="text-[10px] opacity-50">{p.gender}</span>
                           </div>
                         ))}
@@ -435,9 +509,13 @@
 
           {activeTab === 'signup' && (
             <div className="fixed bottom-8 left-0 right-0 px-6 z-50 flex justify-center">
-              <button onClick={handleUpdate} disabled={isSaving} className="w-full max-w-sm flex items-center justify-center gap-3 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-[#0a1a12] rounded-2xl font-black shadow-2xl disabled:opacity-50 transition-all active:scale-95">
+              <button 
+                onClick={handleUpdate} 
+                disabled={isSaving || !hasUnsavedChanges} 
+                className="w-full max-w-sm flex items-center justify-center gap-3 px-8 py-4 bg-emerald-500 hover:bg-emerald-400 text-[#0a1a12] rounded-2xl font-black shadow-2xl disabled:opacity-50 disabled:grayscale transition-all active:scale-95"
+              >
                 {isSaving ? <div className="w-5 h-5 border-2 border-[#0a1a12]/30 border-t-[#0a1a12] rounded-full animate-spin" /> : <Save className="w-5 h-5" />}
-                儲存 ”{proxyUser?.name}“ 資料
+                {hasUnsavedChanges ? `儲存 ”${proxyUser?.name}“ 資料` : "無變更"}
               </button>
             </div>
           )}
